@@ -19,3 +19,6 @@ Thumbs.db
 # Leptos
 /crates/ru-web/target/
 /crates/ru-web/pkg/
+
+# Temp
+/temp/
