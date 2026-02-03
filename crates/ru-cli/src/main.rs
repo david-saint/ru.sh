@@ -1,9 +1,10 @@
+mod api;
 mod config;
 
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
 use colored::Colorize;
-use config::Config;
+use config::{Config, ModelPreset};
 use dialoguer::Select;
 use std::env;
 
@@ -21,6 +22,14 @@ struct Cli {
     /// OpenRouter API key (overrides env var and config file)
     #[arg(long, global = true, hide_env_values = true)]
     api_key: Option<String>,
+
+    /// Model preset: fast, cheap, or standard (default)
+    #[arg(short, long, global = true)]
+    model: Option<String>,
+
+    /// Custom model ID (overrides preset)
+    #[arg(long, global = true)]
+    model_id: Option<String>,
 
     /// Skip confirmation and execute immediately (use with caution)
     #[arg(short = 'y', long, global = true)]
@@ -44,21 +53,21 @@ enum Commands {
 enum ConfigAction {
     /// Set a configuration value
     Set {
-        /// The key to set (api-key)
+        /// The key to set (api-key, model, model-id)
         key: String,
         /// The value to set
         value: String,
     },
     /// Get a configuration value
     Get {
-        /// The key to get (api-key)
+        /// The key to get (api-key, model, model-id)
         key: String,
     },
     /// Show the config file path
     Path,
     /// Clear a configuration value
     Clear {
-        /// The key to clear (api-key)
+        /// The key to clear (api-key, model)
         key: String,
     },
 }
@@ -83,7 +92,29 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                     config.save()?;
                     println!("{}", "API key saved successfully.".green());
                 }
-                _ => bail!("Unknown config key: {}. Available keys: api-key", key),
+                "model" => {
+                    let preset: ModelPreset = value
+                        .parse()
+                        .map_err(|e: String| anyhow::anyhow!(e))?;
+                    config.set_model_preset(preset.clone());
+                    config.save()?;
+                    println!(
+                        "{}",
+                        format!("Model preset set to: {} ({})", preset, config.get_model_id()).green()
+                    );
+                }
+                "model-id" | "model_id" => {
+                    config.set_custom_model(value.clone());
+                    config.save()?;
+                    println!(
+                        "{}",
+                        format!("Custom model set to: {}", value).green()
+                    );
+                }
+                _ => bail!(
+                    "Unknown config key: {}. Available keys: api-key, model, model-id",
+                    key
+                ),
             }
         }
         ConfigAction::Get { key } => {
@@ -106,7 +137,21 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                         println!("{}", "api-key: not set".dimmed());
                     }
                 }
-                _ => bail!("Unknown config key: {}. Available keys: api-key", key),
+                "model" => {
+                    if let Some(custom) = config.get_custom_model() {
+                        println!("model: custom ({})", custom);
+                    } else {
+                        let preset = config.get_model_preset();
+                        println!("model: {} ({})", preset, config.get_model_id());
+                    }
+                }
+                "model-id" | "model_id" => {
+                    println!("model-id: {}", config.get_model_id());
+                }
+                _ => bail!(
+                    "Unknown config key: {}. Available keys: api-key, model, model-id",
+                    key
+                ),
             }
         }
         ConfigAction::Path => {
@@ -124,7 +169,15 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                     config.save()?;
                     println!("{}", "API key cleared.".green());
                 }
-                _ => bail!("Unknown config key: {}. Available keys: api-key", key),
+                "model" => {
+                    config.clear_model();
+                    config.save()?;
+                    println!("{}", "Model settings cleared (using default: standard).".green());
+                }
+                _ => bail!(
+                    "Unknown config key: {}. Available keys: api-key, model",
+                    key
+                ),
             }
         }
     }
@@ -139,10 +192,14 @@ async fn run_prompt(cli: Cli) -> Result<()> {
     // Resolve API key: CLI flag > env var > config file
     let api_key = resolve_api_key(cli.api_key)?;
 
+    // Resolve model: CLI flag > config file > default
+    let model_id = resolve_model(cli.model_id, cli.model)?;
+
     println!("{}", "ru.sh - Natural Language to Bash".bold());
+    println!("{}", format!("Using model: {}", model_id).dimmed());
     println!();
 
-    let generated_script = generate_script(&prompt, &api_key).await?;
+    let generated_script = api::generate_script(&prompt, &api_key, &model_id).await?;
 
     println!("{}", "Generated script:".cyan().bold());
     println!("{}", "-".repeat(40).dimmed());
@@ -219,12 +276,26 @@ fn determine_api_key(
         .or(config_key)
 }
 
-async fn generate_script(prompt: &str, _api_key: &str) -> Result<String> {
-    // TODO: Implement actual OpenRouter API call
-    Ok(format!(
-        "# Generated from: {}\necho \"Script generation not yet implemented\"",
-        prompt
-    ))
+/// Resolve model from: CLI model-id > CLI preset > config
+fn resolve_model(cli_model_id: Option<String>, cli_preset: Option<String>) -> Result<String> {
+    // CLI model-id takes highest priority
+    if let Some(model_id) = cli_model_id {
+        return Ok(model_id);
+    }
+
+    // CLI preset takes next priority
+    if let Some(preset_str) = cli_preset {
+        let preset: ModelPreset = preset_str
+            .parse()
+            .map_err(|e: String| anyhow::anyhow!(e))?;
+        let mut temp_config = Config::default();
+        temp_config.set_model_preset(preset);
+        return Ok(temp_config.get_model_id().to_string());
+    }
+
+    // Fall back to config file
+    let config = Config::load()?;
+    Ok(config.get_model_id().to_string())
 }
 
 fn execute_script(script: &str) -> Result<()> {
@@ -291,6 +362,42 @@ mod tests {
 
         // None
         assert_eq!(determine_api_key(None, None, None), None);
+    }
+
+    #[test]
+    fn test_resolve_model_cli_model_id() {
+        // CLI model-id takes priority
+        let result = resolve_model(
+            Some("custom/model".to_string()),
+            Some("fast".to_string()),
+        );
+        assert_eq!(result.unwrap(), "custom/model");
+    }
+
+    #[test]
+    fn test_resolve_model_cli_preset() {
+        // CLI preset when no model-id
+        let result = resolve_model(None, Some("fast".to_string()));
+        assert!(result.is_ok());
+        // Should return the fast preset model
+        let model = result.unwrap();
+        assert!(!model.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_model_default() {
+        // Default when nothing specified
+        let result = resolve_model(None, None);
+        assert!(result.is_ok());
+        // Should return standard preset model
+        let model = result.unwrap();
+        assert!(!model.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_model_invalid_preset() {
+        let result = resolve_model(None, Some("invalid".to_string()));
+        assert!(result.is_err());
     }
 
     #[test]
