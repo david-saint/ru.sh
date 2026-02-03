@@ -2,6 +2,7 @@ mod api;
 mod config;
 mod history;
 mod safety;
+mod sanitize;
 mod usage;
 
 use anyhow::{bail, Result};
@@ -510,7 +511,8 @@ fn display_script_with_safety(script: &str, report: &SafetyReport) {
 
     println!("{}", "Generated script:".cyan().bold());
     println!("{}", "-".repeat(40).dimmed());
-    println!("{}", script.yellow());
+    // Sanitize script to prevent terminal injection attacks
+    println!("{}", sanitize::for_display(script).yellow());
     println!("{}", "-".repeat(40).dimmed());
 
     // Show syntax error if present
