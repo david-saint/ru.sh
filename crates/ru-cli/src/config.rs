@@ -159,8 +159,28 @@ impl Config {
 
         let contents = toml::to_string_pretty(self).context("Failed to serialize config")?;
 
-        fs::write(&path, contents)
-            .with_context(|| format!("Failed to write config file: {}", path.display()))?;
+        // Write with restricted permissions (0600 on Unix) to protect API key
+        #[cfg(unix)]
+        {
+            use std::io::Write;
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&path)
+                .with_context(|| format!("Failed to open config file: {}", path.display()))?;
+
+            file.write_all(contents.as_bytes())
+                .with_context(|| format!("Failed to write config file: {}", path.display()))?;
+        }
+
+        #[cfg(not(unix))]
+        {
+            fs::write(&path, contents)
+                .with_context(|| format!("Failed to write config file: {}", path.display()))?;
+        }
 
         Ok(())
     }

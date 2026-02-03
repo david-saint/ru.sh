@@ -66,7 +66,19 @@ pub fn log_execution(record: &ExecutionRecord) -> Result<()> {
         }
     }
 
-    // Append the record as JSON line
+    // Append the record as JSON line with restricted permissions (0600 on Unix)
+    #[cfg(unix)]
+    let mut file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        OpenOptions::new()
+            .create(true)
+            .append(true)
+            .mode(0o600)
+            .open(&path)
+            .with_context(|| format!("Failed to open history file: {}", path.display()))?
+    };
+
+    #[cfg(not(unix))]
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -94,7 +106,20 @@ fn rotate_history(path: &PathBuf) -> Result<()> {
         &lines[..]
     };
 
-    // Write the truncated history
+    // Write the truncated history with restricted permissions (0600 on Unix)
+    #[cfg(unix)]
+    let mut file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)
+            .with_context(|| format!("Failed to truncate history file: {}", path.display()))?
+    };
+
+    #[cfg(not(unix))]
     let mut file = File::create(path)
         .with_context(|| format!("Failed to truncate history file: {}", path.display()))?;
 
