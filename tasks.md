@@ -2,45 +2,52 @@
 
 ## Overview
 
-Current completion: ~30%. The CLI skeleton is solid but the core API integration is stubbed.
+Current completion: ~90%. All critical tasks complete. Safety system implemented. Remaining work is testing, CI/CD, and polish.
 
 ---
 
 ## 🔴 Critical (Must Have)
 
 ### 1. Implement OpenRouter API Integration
-- [ ] Create HTTP client with reqwest to call OpenRouter API
-- [ ] Define request/response structs for the API
-- [ ] Implement `generate_script()` function (currently stubbed at `main.rs:222`)
-- [ ] Add proper prompt engineering for bash script generation
-- [ ] Handle API responses and extract generated scripts
-- [ ] Add request timeout handling
-- [ ] Implement retry logic with exponential backoff
+- [x] Create HTTP client with reqwest to call OpenRouter API
+- [x] Define request/response structs for the API
+- [x] Implement `generate_script()` function
+- [x] Add proper prompt engineering for bash script generation
+- [x] Handle API responses and extract generated scripts
+- [x] Add request timeout handling (30s request, 10s connect)
+- [x] Implement retry logic with exponential backoff (max 3 attempts)
 
 ### 2. API Error Handling
-- [ ] Handle network failures gracefully
-- [ ] Detect and report invalid API keys
-- [ ] Handle rate limiting (429 responses)
-- [ ] Handle malformed/partial API responses
-- [ ] Provide actionable error messages to users
+- [x] Handle network failures gracefully
+- [x] Detect and report invalid API keys
+- [x] Handle rate limiting (429 responses) with Retry-After header support
+- [x] Handle malformed/partial API responses
+- [x] Provide actionable error messages to users
 
 ### 3. Implement Script Explanation
-- [ ] Complete the "Explain" option (marked "coming soon" at `main.rs:175`)
-- [ ] Add second API call to explain generated scripts
-- [ ] Format explanation output for terminal readability
+- [x] Complete the "Explain" option
+- [x] Add second API call to explain generated scripts
+- [x] Format explanation output for terminal readability
 
 ---
 
 ## 🟡 Important (Should Have)
 
 ### 4. Input Validation & Safety
-- [ ] Add prompt length validation
-- [ ] Detect potentially dangerous commands (rm -rf, sudo, etc.)
-- [ ] Warn users before executing destructive operations
-- [ ] Validate generated script syntax before offering execution
+- [x] Add prompt length validation (3-2000 chars)
+- [x] Detect potentially dangerous commands (rm -rf, sudo, curl|bash, fork bomb, etc.)
+- [x] Warn users before executing destructive operations (colored risk headers)
+- [x] Validate generated script syntax before offering execution (`bash -n`)
+- [x] Add `--force` flag for high-risk scripts with `-y`
+- [x] Require typing "yes" for High/Critical risk in interactive mode
+- [x] Add audit logging to `~/.config/ru.sh/history.jsonl`
+- [x] Add API usage tracking with configurable daily/monthly limits
 
 ### 5. Expand Configuration
-- [ ] Add model selection option (`config set model <model>`)
+- [x] Add model selection option (`config set model <model>`)
+- [x] Add model preset system (fast, standard, quality)
+- [x] Add custom model override per preset
+- [x] Add configurable explainer model
 - [ ] Add temperature/creativity parameter
 - [ ] Add shell preference (bash, zsh, fish)
 - [ ] Add default behavior preferences (always explain, etc.)
@@ -83,7 +90,7 @@ Current completion: ~30%. The CLI skeleton is solid but the core API integration
 
 ### 11. UX Improvements
 - [ ] Add streaming output for long API responses
-- [ ] Add script history tracking
+- [x] Add script history tracking (audit log in `~/.config/ru.sh/history.jsonl`)
 - [ ] Add `--edit` flag to modify generated scripts before execution
 - [ ] Add syntax highlighting for generated scripts
 - [ ] Add progress spinner during API calls
@@ -105,8 +112,14 @@ Current completion: ~30%. The CLI skeleton is solid but the core API integration
 | User confirmation flow | ✅ Complete |
 | Script execution | ✅ Complete |
 | API key management | ✅ Complete |
-| OpenRouter API calls | ❌ Stubbed |
-| Explanation feature | ❌ Not implemented |
+| OpenRouter API calls | ✅ Complete |
+| Explanation feature | ✅ Complete |
+| Model preset system | ✅ Complete |
+| Request timeout/retry | ✅ Complete |
+| Input validation | ✅ Complete |
+| Safety/risk detection | ✅ Complete |
+| Audit logging | ✅ Complete |
+| Usage tracking | ✅ Complete |
 | Integration tests | ❌ Missing |
 | CI/CD | ❌ Missing |
 | Documentation | ⚠️ Minimal |
@@ -115,9 +128,10 @@ Current completion: ~30%. The CLI skeleton is solid but the core API integration
 
 ## Suggested Priority Order
 
-1. OpenRouter API Integration (#1, #2)
-2. Script Explanation (#3)
-3. CI/CD Pipeline (#8)
-4. Integration Tests (#7)
-5. Input Validation (#4)
-6. Everything else
+1. ~~OpenRouter API Integration (#1, #2)~~ ✅ Done
+2. ~~Script Explanation (#3)~~ ✅ Done
+3. ~~Request timeout/retry hardening~~ ✅ Done
+4. ~~Input Validation & Safety (#4)~~ ✅ Done
+5. CI/CD Pipeline (#8)
+6. Integration Tests (#7)
+7. Everything else
