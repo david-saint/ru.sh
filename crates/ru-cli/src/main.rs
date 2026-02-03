@@ -185,28 +185,18 @@ async fn run_prompt(cli: Cli) -> Result<()> {
 
 /// Resolve API key from: CLI flag > env var > config file
 fn resolve_api_key(cli_key: Option<String>) -> Result<String> {
-    // 1. CLI flag (highest priority)
-    if let Some(key) = cli_key {
-        return Ok(key);
-    }
-
-    // 2. Environment variable
-    if let Ok(key) = env::var("OPENROUTER_API_KEY") {
-        if !key.is_empty() {
-            return Ok(key);
-        }
-    }
-
-    // 3. Config file
+    let env_key = env::var("OPENROUTER_API_KEY").ok();
     let config = Config::load()?;
-    if let Some(key) = config.api_key {
+    let config_key = config.api_key;
+
+    if let Some(key) = determine_api_key(cli_key, env_key, config_key) {
         return Ok(key);
     }
 
     // No API key found - show helpful error
     let config_path = Config::path()
         .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "~/.config/ru/config.toml".to_string());
+        .unwrap_or_else(|| "~/.config/ru.sh/config.toml".to_string());
 
     bail!(
         "No API key found. Set it using one of:\n\n\
@@ -216,6 +206,17 @@ fn resolve_api_key(cli_key: Option<String>) -> Result<String> {
          Config file location: {}",
         config_path
     );
+}
+
+/// Pure logic to determine API key precedence
+fn determine_api_key(
+    cli_key: Option<String>,
+    env_key: Option<String>,
+    config_key: Option<String>,
+) -> Option<String> {
+    cli_key
+        .or(env_key.filter(|k| !k.is_empty()))
+        .or(config_key)
 }
 
 async fn generate_script(prompt: &str, _api_key: &str) -> Result<String> {
@@ -252,4 +253,60 @@ fn execute_script(script: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_determine_api_key_precedence() {
+        let cli = Some("cli-key".to_string());
+        let env = Some("env-key".to_string());
+        let config = Some("config-key".to_string());
+
+        // CLI > Env > Config
+        assert_eq!(
+            determine_api_key(cli.clone(), env.clone(), config.clone()),
+            Some("cli-key".to_string())
+        );
+
+        // Env > Config
+        assert_eq!(
+            determine_api_key(None, env.clone(), config.clone()),
+            Some("env-key".to_string())
+        );
+
+        // Config only
+        assert_eq!(
+            determine_api_key(None, None, config.clone()),
+            Some("config-key".to_string())
+        );
+
+        // Env empty string should be ignored
+        assert_eq!(
+            determine_api_key(None, Some("".to_string()), config.clone()),
+            Some("config-key".to_string())
+        );
+
+        // None
+        assert_eq!(determine_api_key(None, None, None), None);
+    }
+
+    #[test]
+    fn test_execute_script_success() {
+        // We use a simple echo command that should always succeed
+        let result = execute_script("echo 'hello world'");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_execute_script_failure() {
+        // We use a command that is guaranteed to fail
+        // Note: execute_script currently returns Ok(()) even on script failure (exit code != 0),
+        // because the *execution* itself (spawning process) succeeded.
+        // It prints the error. If we want to test that it ran, we check is_ok().
+        let result = execute_script("exit 1");
+        assert!(result.is_ok());
+    }
 }
