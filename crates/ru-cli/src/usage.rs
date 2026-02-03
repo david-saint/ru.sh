@@ -217,9 +217,11 @@ mod tests {
 
     #[test]
     fn test_check_limits_daily_warning() {
-        let mut stats = UsageStats::default();
-        stats.requests_today = 100;
-        stats.last_request_date = Some(Utc::now().format("%Y-%m-%d").to_string());
+        let stats = UsageStats {
+            requests_today: 100,
+            last_request_date: Some(Utc::now().format("%Y-%m-%d").to_string()),
+            ..Default::default()
+        };
 
         let warnings = stats.check_limits(Some(100), Some(1000));
         assert_eq!(warnings.len(), 1);
@@ -229,9 +231,11 @@ mod tests {
 
     #[test]
     fn test_check_limits_monthly_warning() {
-        let mut stats = UsageStats::default();
-        stats.requests_this_month = 1000;
-        stats.last_request_month = Some(Utc::now().format("%Y-%m").to_string());
+        let stats = UsageStats {
+            requests_this_month: 1000,
+            last_request_month: Some(Utc::now().format("%Y-%m").to_string()),
+            ..Default::default()
+        };
 
         let warnings = stats.check_limits(Some(100), Some(1000));
         assert_eq!(warnings.len(), 1);
@@ -241,9 +245,11 @@ mod tests {
 
     #[test]
     fn test_check_limits_default_thresholds() {
-        let mut stats = UsageStats::default();
-        stats.requests_today = DEFAULT_DAILY_WARNING;
-        stats.last_request_date = Some(Utc::now().format("%Y-%m-%d").to_string());
+        let stats = UsageStats {
+            requests_today: DEFAULT_DAILY_WARNING,
+            last_request_date: Some(Utc::now().format("%Y-%m-%d").to_string()),
+            ..Default::default()
+        };
 
         // No limits set, use defaults
         let warnings = stats.check_limits(None, None);
@@ -253,9 +259,11 @@ mod tests {
 
     #[test]
     fn test_reset_daily_counter() {
-        let mut stats = UsageStats::default();
-        stats.requests_today = 50;
-        stats.last_request_date = Some("2020-01-01".to_string()); // Old date
+        let mut stats = UsageStats {
+            requests_today: 50,
+            last_request_date: Some("2020-01-01".to_string()), // Old date
+            ..Default::default()
+        };
 
         stats.reset_if_needed();
         assert_eq!(stats.requests_today, 0);
@@ -263,9 +271,11 @@ mod tests {
 
     #[test]
     fn test_reset_monthly_counter() {
-        let mut stats = UsageStats::default();
-        stats.requests_this_month = 500;
-        stats.last_request_month = Some("2020-01".to_string()); // Old month
+        let mut stats = UsageStats {
+            requests_this_month: 500,
+            last_request_month: Some("2020-01".to_string()), // Old month
+            ..Default::default()
+        };
 
         stats.reset_if_needed();
         assert_eq!(stats.requests_this_month, 0);
