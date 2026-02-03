@@ -23,6 +23,9 @@ pub struct ExecutionRecord {
     pub risk_level: String,
     pub executed: bool,
     pub exit_code: Option<i32>,
+    /// Duration of the API call in milliseconds
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
 }
 
 impl ExecutionRecord {
@@ -32,6 +35,7 @@ impl ExecutionRecord {
         risk_level: RiskLevel,
         executed: bool,
         exit_code: Option<i32>,
+        duration_ms: Option<u64>,
     ) -> Self {
         Self {
             timestamp: Utc::now(),
@@ -40,6 +44,7 @@ impl ExecutionRecord {
             risk_level: risk_level.to_string(),
             executed,
             exit_code,
+            duration_ms,
         }
     }
 }
@@ -136,7 +141,14 @@ mod tests {
     use tempfile::TempDir;
 
     fn create_test_record() -> ExecutionRecord {
-        ExecutionRecord::new("list files", "ls -la", RiskLevel::Safe, true, Some(0))
+        ExecutionRecord::new(
+            "list files",
+            "ls -la",
+            RiskLevel::Safe,
+            true,
+            Some(0),
+            Some(150),
+        )
     }
 
     #[test]
@@ -201,6 +213,7 @@ mod tests {
                 RiskLevel::Safe,
                 true,
                 Some(0),
+                Some(100),
             );
             let json = serde_json::to_string(&record)?;
             writeln!(file, "{}", json)?;

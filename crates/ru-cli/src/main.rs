@@ -14,6 +14,7 @@ use history::ExecutionRecord;
 use safety::{RiskLevel, SafetyReport};
 use std::env;
 use std::io::{self, Write};
+use std::time::Instant;
 
 #[derive(Parser, Debug)]
 #[command(name = "ru")]
@@ -432,7 +433,9 @@ async fn run_prompt(cli: Cli) -> Result<()> {
     println!("{}", format!("Using model: {}", model_id).dimmed());
     println!();
 
+    let start = Instant::now();
     let generated_script = api::generate_script(&prompt, &api_key, &model_id).await?;
+    let api_duration_ms = start.elapsed().as_millis() as u64;
 
     // Analyze script for safety
     let report = safety::analyze_script(&generated_script);
@@ -442,7 +445,14 @@ async fn run_prompt(cli: Cli) -> Result<()> {
 
     if cli.dry_run {
         println!("{}", "Dry run mode - script not executed.".dimmed());
-        log_execution(&prompt, &generated_script, &report, false, None);
+        log_execution(
+            &prompt,
+            &generated_script,
+            &report,
+            false,
+            None,
+            Some(api_duration_ms),
+        );
         return Ok(());
     }
 
@@ -456,7 +466,14 @@ async fn run_prompt(cli: Cli) -> Result<()> {
                     .red()
                     .bold()
             );
-            log_execution(&prompt, &generated_script, &report, false, None);
+            log_execution(
+                &prompt,
+                &generated_script,
+                &report,
+                false,
+                None,
+                Some(api_duration_ms),
+            );
             return Ok(());
         }
 
@@ -475,12 +492,26 @@ async fn run_prompt(cli: Cli) -> Result<()> {
                 "{}",
                 "Use: ru -y --force -p \"...\" to execute dangerous scripts.".dimmed()
             );
-            log_execution(&prompt, &generated_script, &report, false, None);
+            log_execution(
+                &prompt,
+                &generated_script,
+                &report,
+                false,
+                None,
+                Some(api_duration_ms),
+            );
             return Ok(());
         }
 
         let exit_code = execute_script(&generated_script)?;
-        log_execution(&prompt, &generated_script, &report, true, exit_code);
+        log_execution(
+            &prompt,
+            &generated_script,
+            &report,
+            true,
+            exit_code,
+            Some(api_duration_ms),
+        );
         return Ok(());
     }
 
@@ -490,7 +521,14 @@ async fn run_prompt(cli: Cli) -> Result<()> {
             "{}",
             "Script has syntax errors. Execution blocked.".red().bold()
         );
-        log_execution(&prompt, &generated_script, &report, false, None);
+        log_execution(
+            &prompt,
+            &generated_script,
+            &report,
+            false,
+            None,
+            Some(api_duration_ms),
+        );
         return Ok(());
     }
 
@@ -503,6 +541,7 @@ async fn run_prompt(cli: Cli) -> Result<()> {
             &report,
             exit_code.is_some(),
             exit_code,
+            Some(api_duration_ms),
         );
     } else {
         let exit_code =
@@ -513,6 +552,7 @@ async fn run_prompt(cli: Cli) -> Result<()> {
             &report,
             exit_code.is_some(),
             exit_code,
+            Some(api_duration_ms),
         );
     }
 
@@ -687,8 +727,16 @@ fn log_execution(
     report: &SafetyReport,
     executed: bool,
     exit_code: Option<i32>,
+    duration_ms: Option<u64>,
 ) {
-    let record = ExecutionRecord::new(prompt, script, report.overall_risk, executed, exit_code);
+    let record = ExecutionRecord::new(
+        prompt,
+        script,
+        report.overall_risk,
+        executed,
+        exit_code,
+        duration_ms,
+    );
     if let Err(e) = history::log_execution(&record) {
         eprintln!(
             "{}",
@@ -791,10 +839,12 @@ async fn explain_and_prompt(script: &str, api_key: &str) -> Result<Option<i32>> 
 fn execute_script(script: &str) -> Result<Option<i32>> {
     println!("{}", "Executing...".green().bold());
 
+    let start = Instant::now();
     let output = std::process::Command::new("bash")
         .arg("-c")
         .arg(script)
         .output()?;
+    let duration = start.elapsed();
 
     if !output.stdout.is_empty() {
         println!("{}", String::from_utf8_lossy(&output.stdout));
@@ -807,7 +857,14 @@ fn execute_script(script: &str) -> Result<Option<i32>> {
     let exit_code = output.status.code();
 
     if output.status.success() {
-        println!("{}", "Script executed successfully.".green());
+        println!(
+            "{}",
+            format!(
+                "Script executed successfully in {:.2}s.",
+                duration.as_secs_f64()
+            )
+            .green()
+        );
     } else {
         println!(
             "{}",
