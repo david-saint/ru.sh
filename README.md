@@ -112,4 +112,4 @@ trunk serve
 
 ## 📄 License
 
-MIT License. See `Cargo.toml` for details.
+Apache-2.0 License. See `Cargo.toml` for details.

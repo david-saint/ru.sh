@@ -58,6 +58,7 @@ The CLI looks for an API key in the following order:
 *   **Security:**
     *   **Never execute without confirmation:** The user must explicitly approve any generated script.
     *   **Dry Run:** `dry_run` mode is supported to preview scripts.
+*   **License:** Apache-2.0
 *   **Coding Style:** Follow standard Rust conventions (`rustfmt`, `clippy`).
 *   **Error Handling:** Use `anyhow` for top-level error handling and `thiserror` for library errors.
 
