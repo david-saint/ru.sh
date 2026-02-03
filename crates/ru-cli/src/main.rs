@@ -5,7 +5,7 @@ mod safety;
 mod sanitize;
 mod usage;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use config::{Config, ModelPreset};
@@ -106,23 +106,24 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                     println!("{}", "API key saved successfully.".green());
                 }
                 "model" => {
-                    let preset: ModelPreset = value
-                        .parse()
-                        .map_err(|e: String| anyhow::anyhow!(e))?;
+                    let preset: ModelPreset =
+                        value.parse().map_err(|e: String| anyhow::anyhow!(e))?;
                     config.set_model_preset(preset.clone());
                     config.save()?;
                     println!(
                         "{}",
-                        format!("Model preset set to: {} ({})", preset, config.get_model_id()).green()
+                        format!(
+                            "Model preset set to: {} ({})",
+                            preset,
+                            config.get_model_id()
+                        )
+                        .green()
                     );
                 }
                 "model-id" | "model_id" => {
                     config.set_custom_model(value.clone());
                     config.save()?;
-                    println!(
-                        "{}",
-                        format!("Custom model set to: {}", value).green()
-                    );
+                    println!("{}", format!("Custom model set to: {}", value).green());
                 }
                 "model.fast" => {
                     config.set_preset_model(&ModelPreset::Fast, value.clone());
@@ -151,15 +152,12 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                 "model.explainer" => {
                     config.set_explainer_model(value.clone());
                     config.save()?;
-                    println!(
-                        "{}",
-                        format!("Explainer model set to: {}", value).green()
-                    );
+                    println!("{}", format!("Explainer model set to: {}", value).green());
                 }
                 "daily-limit" | "daily_limit" => {
-                    let limit: u32 = value
-                        .parse()
-                        .map_err(|_| anyhow::anyhow!("Invalid daily limit: must be a positive integer"))?;
+                    let limit: u32 = value.parse().map_err(|_| {
+                        anyhow::anyhow!("Invalid daily limit: must be a positive integer")
+                    })?;
                     config.set_daily_limit(limit);
                     config.save()?;
                     println!(
@@ -168,9 +166,9 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                     );
                 }
                 "monthly-limit" | "monthly_limit" => {
-                    let limit: u32 = value
-                        .parse()
-                        .map_err(|_| anyhow::anyhow!("Invalid monthly limit: must be a positive integer"))?;
+                    let limit: u32 = value.parse().map_err(|_| {
+                        anyhow::anyhow!("Invalid monthly limit: must be a positive integer")
+                    })?;
                     config.set_monthly_limit(limit);
                     config.save()?;
                     println!(
@@ -191,11 +189,7 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                     if let Some(api_key) = config.get_api_key() {
                         // Show only first/last few chars for security
                         let masked = if api_key.len() > 12 {
-                            format!(
-                                "{}...{}",
-                                &api_key[..6],
-                                &api_key[api_key.len() - 4..]
-                            )
+                            format!("{}...{}", &api_key[..6], &api_key[api_key.len() - 4..])
                         } else {
                             "[set]".to_string()
                         };
@@ -242,7 +236,11 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                 "model.explainer" => {
                     let default = config::DEFAULT_MODEL_EXPLAINER;
                     if config.explainer_model.is_some() {
-                        println!("model.explainer: {} (default: {})", config.get_explainer_model(), default);
+                        println!(
+                            "model.explainer: {} (default: {})",
+                            config.get_explainer_model(),
+                            default
+                        );
                     } else {
                         println!("model.explainer: {} (default)", default);
                     }
@@ -251,14 +249,20 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                     if let Some(limit) = config.get_daily_limit() {
                         println!("daily-limit: {} requests", limit);
                     } else {
-                        println!("{}", "daily-limit: not set (default warning at 100)".dimmed());
+                        println!(
+                            "{}",
+                            "daily-limit: not set (default warning at 100)".dimmed()
+                        );
                     }
                 }
                 "monthly-limit" | "monthly_limit" => {
                     if let Some(limit) = config.get_monthly_limit() {
                         println!("monthly-limit: {} requests", limit);
                     } else {
-                        println!("{}", "monthly-limit: not set (default warning at 1000)".dimmed());
+                        println!(
+                            "{}",
+                            "monthly-limit: not set (default warning at 1000)".dimmed()
+                        );
                     }
                 }
                 _ => bail!(
@@ -285,41 +289,67 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                 "model" => {
                     config.clear_model();
                     config.save()?;
-                    println!("{}", "Model settings cleared (using default: standard).".green());
+                    println!(
+                        "{}",
+                        "Model settings cleared (using default: standard).".green()
+                    );
                 }
                 "model.fast" => {
                     config.clear_preset_model(&ModelPreset::Fast);
                     config.save()?;
                     let default = Config::get_default_model_id(&ModelPreset::Fast);
-                    println!("{}", format!("Custom 'fast' model cleared. Using default: {}", default).green());
+                    println!(
+                        "{}",
+                        format!("Custom 'fast' model cleared. Using default: {}", default).green()
+                    );
                 }
                 "model.standard" => {
                     config.clear_preset_model(&ModelPreset::Standard);
                     config.save()?;
                     let default = Config::get_default_model_id(&ModelPreset::Standard);
-                    println!("{}", format!("Custom 'standard' model cleared. Using default: {}", default).green());
+                    println!(
+                        "{}",
+                        format!(
+                            "Custom 'standard' model cleared. Using default: {}",
+                            default
+                        )
+                        .green()
+                    );
                 }
                 "model.quality" => {
                     config.clear_preset_model(&ModelPreset::Quality);
                     config.save()?;
                     let default = Config::get_default_model_id(&ModelPreset::Quality);
-                    println!("{}", format!("Custom 'quality' model cleared. Using default: {}", default).green());
+                    println!(
+                        "{}",
+                        format!("Custom 'quality' model cleared. Using default: {}", default)
+                            .green()
+                    );
                 }
                 "model.explainer" => {
                     config.clear_explainer_model();
                     config.save()?;
                     let default = config::DEFAULT_MODEL_EXPLAINER;
-                    println!("{}", format!("Explainer model cleared. Using default: {}", default).green());
+                    println!(
+                        "{}",
+                        format!("Explainer model cleared. Using default: {}", default).green()
+                    );
                 }
                 "daily-limit" | "daily_limit" => {
                     config.clear_daily_limit();
                     config.save()?;
-                    println!("{}", "Daily limit cleared. Using default warning threshold (100).".green());
+                    println!(
+                        "{}",
+                        "Daily limit cleared. Using default warning threshold (100).".green()
+                    );
                 }
                 "monthly-limit" | "monthly_limit" => {
                     config.clear_monthly_limit();
                     config.save()?;
-                    println!("{}", "Monthly limit cleared. Using default warning threshold (1000).".green());
+                    println!(
+                        "{}",
+                        "Monthly limit cleared. Using default warning threshold (1000).".green()
+                    );
                 }
                 _ => bail!(
                     "Unknown config key: {}. Available keys: api-key, model, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit",
@@ -333,7 +363,11 @@ fn handle_config(action: ConfigAction) -> Result<()> {
             println!();
 
             let current_preset = config.get_model_preset();
-            for preset in [ModelPreset::Fast, ModelPreset::Standard, ModelPreset::Quality] {
+            for preset in [
+                ModelPreset::Fast,
+                ModelPreset::Standard,
+                ModelPreset::Quality,
+            ] {
                 let default = Config::get_default_model_id(&preset);
                 let custom = config.get_preset_model(&preset);
                 let is_current = current_preset == preset;
@@ -385,7 +419,10 @@ async fn run_prompt(cli: Cli) -> Result<()> {
     let usage_warnings = usage::track_usage(config.get_daily_limit(), config.get_monthly_limit())?;
     for warning in &usage_warnings {
         if warning.is_limit_exceeded {
-            println!("{}", format!("Warning: {}", warning.message).yellow().bold());
+            println!(
+                "{}",
+                format!("Warning: {}", warning.message).yellow().bold()
+            );
         } else {
             println!("{}", format!("Note: {}", warning.message).yellow());
         }
@@ -415,7 +452,9 @@ async fn run_prompt(cli: Cli) -> Result<()> {
         if !report.syntax_valid {
             println!(
                 "{}",
-                "Cannot auto-execute: script has syntax errors.".red().bold()
+                "Cannot auto-execute: script has syntax errors."
+                    .red()
+                    .bold()
             );
             log_execution(&prompt, &generated_script, &report, false, None);
             return Ok(());
@@ -458,10 +497,23 @@ async fn run_prompt(cli: Cli) -> Result<()> {
     // For high/critical risk, require explicit confirmation
     if report.requires_force() {
         let exit_code = prompt_high_risk_execution(&generated_script, &report, &api_key).await?;
-        log_execution(&prompt, &generated_script, &report, exit_code.is_some(), exit_code);
+        log_execution(
+            &prompt,
+            &generated_script,
+            &report,
+            exit_code.is_some(),
+            exit_code,
+        );
     } else {
-        let exit_code = prompt_normal_execution(&generated_script, &report, &prompt, &api_key).await?;
-        log_execution(&prompt, &generated_script, &report, exit_code.is_some(), exit_code);
+        let exit_code =
+            prompt_normal_execution(&generated_script, &report, &prompt, &api_key).await?;
+        log_execution(
+            &prompt,
+            &generated_script,
+            &report,
+            exit_code.is_some(),
+            exit_code,
+        );
     }
 
     Ok(())
@@ -638,7 +690,10 @@ fn log_execution(
 ) {
     let record = ExecutionRecord::new(prompt, script, report.overall_risk, executed, exit_code);
     if let Err(e) = history::log_execution(&record) {
-        eprintln!("{}", format!("Warning: Failed to log execution: {}", e).dimmed());
+        eprintln!(
+            "{}",
+            format!("Warning: Failed to log execution: {}", e).dimmed()
+        );
     }
 }
 
@@ -673,9 +728,7 @@ fn determine_api_key(
     env_key: Option<String>,
     config_key: Option<String>,
 ) -> Option<String> {
-    cli_key
-        .or(env_key.filter(|k| !k.is_empty()))
-        .or(config_key)
+    cli_key.or(env_key.filter(|k| !k.is_empty())).or(config_key)
 }
 
 /// Resolve model from: CLI model-id > CLI preset > config
@@ -690,9 +743,7 @@ fn resolve_model(cli_model_id: Option<String>, cli_preset: Option<String>) -> Re
 
     // CLI preset takes next priority (but still respects user's custom model for that preset)
     if let Some(preset_str) = cli_preset {
-        let preset: ModelPreset = preset_str
-            .parse()
-            .map_err(|e: String| anyhow::anyhow!(e))?;
+        let preset: ModelPreset = preset_str.parse().map_err(|e: String| anyhow::anyhow!(e))?;
         config.set_model_preset(preset);
         return Ok(config.get_model_id().to_string());
     }
@@ -705,7 +756,10 @@ async fn explain_and_prompt(script: &str, api_key: &str) -> Result<Option<i32>> 
     let config = Config::load()?;
     let explainer_model = config.get_explainer_model();
 
-    println!("{}", format!("Explaining with: {}", explainer_model).dimmed());
+    println!(
+        "{}",
+        format!("Explaining with: {}", explainer_model).dimmed()
+    );
     println!();
 
     let explanation = api::explain_script(script, api_key, explainer_model).await?;
@@ -805,10 +859,7 @@ mod tests {
     #[test]
     fn test_resolve_model_cli_model_id() {
         // CLI model-id takes priority
-        let result = resolve_model(
-            Some("custom/model".to_string()),
-            Some("fast".to_string()),
-        );
+        let result = resolve_model(Some("custom/model".to_string()), Some("fast".to_string()));
         assert_eq!(result.unwrap(), "custom/model");
     }
 

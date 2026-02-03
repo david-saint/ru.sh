@@ -67,8 +67,9 @@ impl UsageStats {
         let path = Self::path().context("Could not determine usage path")?;
 
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create usage directory: {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create usage directory: {}", parent.display())
+            })?;
         }
 
         let contents = toml::to_string_pretty(self).context("Failed to serialize usage stats")?;
@@ -113,7 +114,11 @@ impl UsageStats {
     }
 
     /// Check usage against limits and return any warnings
-    pub fn check_limits(&self, daily_limit: Option<u32>, monthly_limit: Option<u32>) -> Vec<UsageWarning> {
+    pub fn check_limits(
+        &self,
+        daily_limit: Option<u32>,
+        monthly_limit: Option<u32>,
+    ) -> Vec<UsageWarning> {
         let mut warnings = Vec::new();
 
         let daily_threshold = daily_limit.unwrap_or(DEFAULT_DAILY_WARNING);
@@ -121,7 +126,9 @@ impl UsageStats {
 
         // Check daily limit
         if self.requests_today >= daily_threshold {
-            let is_exceeded = daily_limit.map(|l| self.requests_today >= l).unwrap_or(false);
+            let is_exceeded = daily_limit
+                .map(|l| self.requests_today >= l)
+                .unwrap_or(false);
             warnings.push(UsageWarning {
                 message: format!(
                     "Daily usage: {}/{} requests{}",
@@ -154,7 +161,10 @@ impl UsageStats {
 }
 
 /// Increment usage and check limits, returning any warnings
-pub fn track_usage(daily_limit: Option<u32>, monthly_limit: Option<u32>) -> Result<Vec<UsageWarning>> {
+pub fn track_usage(
+    daily_limit: Option<u32>,
+    monthly_limit: Option<u32>,
+) -> Result<Vec<UsageWarning>> {
     let mut stats = UsageStats::load()?;
     stats.increment();
     stats.save()?;

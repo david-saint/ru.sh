@@ -28,7 +28,7 @@ pub fn for_display(input: &str) -> String {
             }
             // Replace problematic control characters
             '\r' => result.push_str("\\r"),
-            '\x08' => result.push_str("\\b"), // backspace
+            '\x08' => result.push_str("\\b"),   // backspace
             '\x7f' => result.push_str("\\x7f"), // DEL
             // Allow normal printable chars, newlines, tabs
             c if c.is_ascii_graphic() || c == ' ' || c == '\n' || c == '\t' => {

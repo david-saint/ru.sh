@@ -93,8 +93,8 @@ pub fn log_execution(record: &ExecutionRecord) -> Result<()> {
 
 /// Rotate the history file by keeping only the most recent entries
 fn rotate_history(path: &PathBuf) -> Result<()> {
-    let file =
-        File::open(path).with_context(|| format!("Failed to open history file: {}", path.display()))?;
+    let file = File::open(path)
+        .with_context(|| format!("Failed to open history file: {}", path.display()))?;
 
     let reader = BufReader::new(file);
     let lines: Vec<String> = reader.lines().collect::<Result<Vec<_>, _>>()?;

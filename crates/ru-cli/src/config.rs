@@ -153,8 +153,9 @@ impl Config {
     /// Save config to a specific path
     pub fn save_to(&self, path: PathBuf) -> Result<()> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create config directory: {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create config directory: {}", parent.display())
+            })?;
         }
 
         let contents = toml::to_string_pretty(self).context("Failed to serialize config")?;
@@ -284,7 +285,9 @@ impl Config {
     /// Get the effective explainer model ID
     /// Returns custom override if set, otherwise default
     pub fn get_explainer_model(&self) -> &str {
-        self.explainer_model.as_deref().unwrap_or(DEFAULT_MODEL_EXPLAINER)
+        self.explainer_model
+            .as_deref()
+            .unwrap_or(DEFAULT_MODEL_EXPLAINER)
     }
 
     /// Get the daily request limit
@@ -377,8 +380,14 @@ mod tests {
     #[test]
     fn test_model_preset_from_str() {
         assert_eq!(ModelPreset::from_str("fast").unwrap(), ModelPreset::Fast);
-        assert_eq!(ModelPreset::from_str("STANDARD").unwrap(), ModelPreset::Standard);
-        assert_eq!(ModelPreset::from_str("Quality").unwrap(), ModelPreset::Quality);
+        assert_eq!(
+            ModelPreset::from_str("STANDARD").unwrap(),
+            ModelPreset::Standard
+        );
+        assert_eq!(
+            ModelPreset::from_str("Quality").unwrap(),
+            ModelPreset::Quality
+        );
         assert!(ModelPreset::from_str("invalid").is_err());
     }
 
@@ -487,7 +496,10 @@ mod tests {
 
         let loaded = Config::load_from(path)?;
         assert_eq!(loaded.get_api_key(), Some("test-key"));
-        assert_eq!(loaded.get_preset_model(&ModelPreset::Fast), Some("custom/fast-model"));
+        assert_eq!(
+            loaded.get_preset_model(&ModelPreset::Fast),
+            Some("custom/fast-model")
+        );
         assert_eq!(loaded.get_preset_model(&ModelPreset::Standard), None);
         assert_eq!(loaded.get_explainer_model(), "custom/explainer");
 

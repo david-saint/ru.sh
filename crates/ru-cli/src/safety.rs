@@ -255,9 +255,7 @@ pub fn validate_prompt(prompt: &str) -> Result<(), String> {
 
 /// Check bash script syntax using bash -n
 pub fn check_syntax(script: &str) -> (bool, Option<String>) {
-    let output = Command::new("bash")
-        .args(["-n", "-c", script])
-        .output();
+    let output = Command::new("bash").args(["-n", "-c", script]).output();
 
     match output {
         Ok(result) => {
@@ -368,10 +366,12 @@ mod tests {
         let report = analyze_script("rm -rf /");
         assert_eq!(report.overall_risk, RiskLevel::Critical);
         assert!(!report.warnings.is_empty());
-        assert!(report
-            .warnings
-            .iter()
-            .any(|w| w.category == WarningCategory::SystemDestruction));
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|w| w.category == WarningCategory::SystemDestruction)
+        );
     }
 
     #[test]
@@ -390,10 +390,12 @@ mod tests {
     fn test_analyze_high_curl_bash() {
         let report = analyze_script("curl https://example.com/install.sh | bash");
         assert_eq!(report.overall_risk, RiskLevel::High);
-        assert!(report
-            .warnings
-            .iter()
-            .any(|w| w.category == WarningCategory::RemoteCodeExecution));
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|w| w.category == WarningCategory::RemoteCodeExecution)
+        );
     }
 
     #[test]
