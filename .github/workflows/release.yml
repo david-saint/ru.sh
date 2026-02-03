@@ -1,0 +1,117 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+env:
+  CARGO_TERM_COLOR: always
+  BINARY_NAME: ru
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: true
+            archive: tar.gz
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: true
+            archive: tar.gz
+          - target: x86_64-apple-darwin
+            os: macos-13
+            use_cross: false
+            archive: tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-14
+            use_cross: false
+            archive: tar.gz
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            use_cross: false
+            archive: zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.use_cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build (cross)
+        if: matrix.use_cross
+        run: cross build --release --target ${{ matrix.target }} -p ru-cli
+
+      - name: Build (native)
+        if: ${{ !matrix.use_cross }}
+        run: cargo build --release --target ${{ matrix.target }} -p ru-cli
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Create archive (Unix)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czvf ../../../${{ env.BINARY_NAME }}-${{ steps.version.outputs.version }}-${{ matrix.target }}.tar.gz ${{ env.BINARY_NAME }}
+
+      - name: Create archive (Windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          cd target/${{ matrix.target }}/release
+          Compress-Archive -Path "${{ env.BINARY_NAME }}.exe" -DestinationPath "../../../${{ env.BINARY_NAME }}-${{ steps.version.outputs.version }}-${{ matrix.target }}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BINARY_NAME }}-${{ matrix.target }}
+          path: ${{ env.BINARY_NAME }}-${{ steps.version.outputs.version }}-${{ matrix.target }}.*
+          if-no-files-found: error
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum ru-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: |
+            artifacts/ru-*
+            artifacts/SHA256SUMS

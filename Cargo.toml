@@ -16,3 +16,8 @@ thiserror = "2"
 anyhow = "1"
 toml = "0.8"
 dirs = "6"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
