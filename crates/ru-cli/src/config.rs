@@ -4,25 +4,34 @@ use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+/// Default model for Fast preset
+pub const DEFAULT_MODEL_FAST: &str = "google/gemini-2.5-flash:nitro";
+/// Default model for Standard preset
+pub const DEFAULT_MODEL_STANDARD: &str = "google/gemini-3-flash-preview:nitro";
+/// Default model for Quality preset
+pub const DEFAULT_MODEL_QUALITY: &str = "anthropic/claude-opus-4.5:nitro";
+/// Default model for Explainer
+pub const DEFAULT_MODEL_EXPLAINER: &str = "openai/gpt-4o-mini:nitro";
+
 /// Model preset for quick selection
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModelPreset {
     /// Fastest response time
     Fast,
-    /// Lowest cost per request
-    Cheap,
     /// Best balance of quality, speed, and cost
     #[default]
     Standard,
+    /// Highest quality output
+    Quality,
 }
 
 impl std::fmt::Display for ModelPreset {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ModelPreset::Fast => write!(f, "fast"),
-            ModelPreset::Cheap => write!(f, "cheap"),
             ModelPreset::Standard => write!(f, "standard"),
+            ModelPreset::Quality => write!(f, "quality"),
         }
     }
 }
@@ -33,12 +42,54 @@ impl FromStr for ModelPreset {
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "fast" => Ok(ModelPreset::Fast),
-            "cheap" => Ok(ModelPreset::Cheap),
             "standard" => Ok(ModelPreset::Standard),
+            "quality" => Ok(ModelPreset::Quality),
+            // Backward compatibility: map "cheap" to "fast"
+            "cheap" => Ok(ModelPreset::Fast),
             _ => Err(format!(
-                "Invalid model preset: '{}'. Valid options: fast, cheap, standard",
+                "Invalid model preset: '{}'. Valid options: fast, standard, quality",
                 s
             )),
+        }
+    }
+}
+
+/// Custom model overrides for each preset
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct PresetModels {
+    /// Custom model for the "fast" preset
+    pub fast: Option<String>,
+    /// Custom model for the "standard" preset
+    pub standard: Option<String>,
+    /// Custom model for the "quality" preset
+    pub quality: Option<String>,
+}
+
+impl PresetModels {
+    /// Get custom model for a preset
+    pub fn get(&self, preset: &ModelPreset) -> Option<&str> {
+        match preset {
+            ModelPreset::Fast => self.fast.as_deref(),
+            ModelPreset::Standard => self.standard.as_deref(),
+            ModelPreset::Quality => self.quality.as_deref(),
+        }
+    }
+
+    /// Set custom model for a preset
+    pub fn set(&mut self, preset: &ModelPreset, model_id: String) {
+        match preset {
+            ModelPreset::Fast => self.fast = Some(model_id),
+            ModelPreset::Standard => self.standard = Some(model_id),
+            ModelPreset::Quality => self.quality = Some(model_id),
+        }
+    }
+
+    /// Clear custom model for a preset
+    pub fn clear(&mut self, preset: &ModelPreset) {
+        match preset {
+            ModelPreset::Fast => self.fast = None,
+            ModelPreset::Standard => self.standard = None,
+            ModelPreset::Quality => self.quality = None,
         }
     }
 }
@@ -46,10 +97,19 @@ impl FromStr for ModelPreset {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
     pub api_key: Option<String>,
-    /// Model preset (fast, cheap, standard)
+    /// Model preset (fast, standard, quality)
     pub model_preset: Option<ModelPreset>,
-    /// Custom model ID (overrides preset)
+    /// Custom model ID (overrides preset for one-time use via CLI)
     pub custom_model: Option<String>,
+    /// Custom model overrides per preset (persisted in config)
+    #[serde(default)]
+    pub preset_models: PresetModels,
+    /// Custom model for the explainer feature
+    pub explainer_model: Option<String>,
+    /// Daily request limit (warning threshold)
+    pub daily_limit: Option<u32>,
+    /// Monthly request limit (warning threshold)
+    pub monthly_limit: Option<u32>,
 }
 
 impl Config {
@@ -148,23 +208,93 @@ impl Config {
         self.custom_model = None;
     }
 
+    /// Set a custom model for a specific preset
+    pub fn set_preset_model(&mut self, preset: &ModelPreset, model_id: String) {
+        self.preset_models.set(preset, model_id);
+    }
+
+    /// Clear custom model for a specific preset (revert to default)
+    pub fn clear_preset_model(&mut self, preset: &ModelPreset) {
+        self.preset_models.clear(preset);
+    }
+
+    /// Get the custom model for a preset (if any)
+    pub fn get_preset_model(&self, preset: &ModelPreset) -> Option<&str> {
+        self.preset_models.get(preset)
+    }
+
+    /// Get the default model ID for a preset (ignoring custom overrides)
+    pub fn get_default_model_id(preset: &ModelPreset) -> &'static str {
+        match preset {
+            ModelPreset::Fast => DEFAULT_MODEL_FAST,
+            ModelPreset::Standard => DEFAULT_MODEL_STANDARD,
+            ModelPreset::Quality => DEFAULT_MODEL_QUALITY,
+        }
+    }
+
     /// Get the effective model ID based on config
-    /// Priority: custom_model > preset mapping
+    /// Priority: custom_model > preset custom override > preset default
     pub fn get_model_id(&self) -> &str {
+        // 1. CLI custom_model takes highest priority
         if let Some(custom) = &self.custom_model {
             return custom;
         }
 
-        // Map presets to model IDs based on benchmark results
-        // Benchmark on NL2SH-ALFA dataset (30 examples):
-        // - gpt-4o-mini: 76.67% accuracy, 604ms latency, $0.12/1K
-        // - gemini-2.5-flash: 60% accuracy, 967ms latency, $0.11/1K
-        // - claude-sonnet-4.5: 63.33% accuracy, 1947ms latency, $0.14/1K
-        match self.get_model_preset() {
-            ModelPreset::Fast => "google/gemini-2.5-flash",
-            ModelPreset::Cheap => "google/gemini-2.5-flash",
-            ModelPreset::Standard => "openai/gpt-4o-mini",
+        let preset = self.get_model_preset();
+
+        // 2. Check for user-configured preset override
+        if let Some(custom_preset_model) = self.preset_models.get(&preset) {
+            return custom_preset_model;
         }
+
+        // 3. Fall back to built-in defaults
+        Self::get_default_model_id(&preset)
+    }
+
+    /// Set the explainer model
+    pub fn set_explainer_model(&mut self, model_id: String) {
+        self.explainer_model = Some(model_id);
+    }
+
+    /// Clear the explainer model (revert to default)
+    pub fn clear_explainer_model(&mut self) {
+        self.explainer_model = None;
+    }
+
+    /// Get the effective explainer model ID
+    /// Returns custom override if set, otherwise default
+    pub fn get_explainer_model(&self) -> &str {
+        self.explainer_model.as_deref().unwrap_or(DEFAULT_MODEL_EXPLAINER)
+    }
+
+    /// Get the daily request limit
+    pub fn get_daily_limit(&self) -> Option<u32> {
+        self.daily_limit
+    }
+
+    /// Set the daily request limit
+    pub fn set_daily_limit(&mut self, limit: u32) {
+        self.daily_limit = Some(limit);
+    }
+
+    /// Clear the daily request limit
+    pub fn clear_daily_limit(&mut self) {
+        self.daily_limit = None;
+    }
+
+    /// Get the monthly request limit
+    pub fn get_monthly_limit(&self) -> Option<u32> {
+        self.monthly_limit
+    }
+
+    /// Set the monthly request limit
+    pub fn set_monthly_limit(&mut self, limit: u32) {
+        self.monthly_limit = Some(limit);
+    }
+
+    /// Clear the monthly request limit
+    pub fn clear_monthly_limit(&mut self) {
+        self.monthly_limit = None;
     }
 }
 
@@ -209,7 +339,7 @@ mod tests {
 
         // Setting preset clears custom model
         config.set_custom_model("custom/model".to_string());
-        config.set_model_preset(ModelPreset::Cheap);
+        config.set_model_preset(ModelPreset::Quality);
         assert_eq!(config.custom_model, None);
     }
 
@@ -227,12 +357,18 @@ mod tests {
     #[test]
     fn test_model_preset_from_str() {
         assert_eq!(ModelPreset::from_str("fast").unwrap(), ModelPreset::Fast);
-        assert_eq!(ModelPreset::from_str("CHEAP").unwrap(), ModelPreset::Cheap);
-        assert_eq!(
-            ModelPreset::from_str("Standard").unwrap(),
-            ModelPreset::Standard
-        );
+        assert_eq!(ModelPreset::from_str("STANDARD").unwrap(), ModelPreset::Standard);
+        assert_eq!(ModelPreset::from_str("Quality").unwrap(), ModelPreset::Quality);
         assert!(ModelPreset::from_str("invalid").is_err());
+    }
+
+    #[test]
+    fn test_cheap_maps_to_fast() {
+        // Backward compatibility: "cheap" should parse to Fast
+        let preset = ModelPreset::from_str("cheap").unwrap();
+        assert_eq!(preset, ModelPreset::Fast);
+        let preset = ModelPreset::from_str("CHEAP").unwrap();
+        assert_eq!(preset, ModelPreset::Fast);
     }
 
     #[test]
@@ -240,12 +376,62 @@ mod tests {
         let mut config = Config::default();
 
         // Default returns standard preset model
-        let default_model = config.get_model_id();
-        assert!(!default_model.is_empty());
+        assert_eq!(config.get_model_id(), DEFAULT_MODEL_STANDARD);
 
         // Custom model overrides preset
         config.set_custom_model("my/custom-model".to_string());
         assert_eq!(config.get_model_id(), "my/custom-model");
+    }
+
+    #[test]
+    fn test_preset_model_override() {
+        let mut config = Config::default();
+
+        // Default fast model
+        config.set_model_preset(ModelPreset::Fast);
+        assert_eq!(config.get_model_id(), DEFAULT_MODEL_FAST);
+
+        // Override fast preset with custom model
+        config.set_preset_model(&ModelPreset::Fast, "my/custom-fast".to_string());
+        assert_eq!(config.get_model_id(), "my/custom-fast");
+
+        // Clear override, back to default
+        config.clear_preset_model(&ModelPreset::Fast);
+        assert_eq!(config.get_model_id(), DEFAULT_MODEL_FAST);
+    }
+
+    #[test]
+    fn test_custom_model_overrides_preset_override() {
+        let mut config = Config::default();
+        config.set_model_preset(ModelPreset::Fast);
+        config.set_preset_model(&ModelPreset::Fast, "my/preset-override".to_string());
+        config.set_custom_model("my/cli-override".to_string());
+
+        // CLI custom_model should take precedence
+        assert_eq!(config.get_model_id(), "my/cli-override");
+    }
+
+    #[test]
+    fn test_quality_preset() {
+        let mut config = Config::default();
+        config.set_model_preset(ModelPreset::Quality);
+        assert_eq!(config.get_model_id(), DEFAULT_MODEL_QUALITY);
+    }
+
+    #[test]
+    fn test_explainer_model() {
+        let mut config = Config::default();
+
+        // Default explainer model
+        assert_eq!(config.get_explainer_model(), DEFAULT_MODEL_EXPLAINER);
+
+        // Set custom explainer model
+        config.set_explainer_model("my/custom-explainer".to_string());
+        assert_eq!(config.get_explainer_model(), "my/custom-explainer");
+
+        // Clear explainer model, back to default
+        config.clear_explainer_model();
+        assert_eq!(config.get_explainer_model(), DEFAULT_MODEL_EXPLAINER);
     }
 
     #[test]
@@ -263,6 +449,27 @@ mod tests {
         let loaded = Config::load_from(path)?;
         assert_eq!(loaded.get_api_key(), Some("persistent-key"));
         assert_eq!(loaded.model_preset, Some(ModelPreset::Fast));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_save_and_load_with_preset_models() -> Result<()> {
+        let file = NamedTempFile::new()?;
+        let path = file.path().to_path_buf();
+
+        let mut config = Config::default();
+        config.set_api_key("test-key".to_string());
+        config.set_model_preset(ModelPreset::Standard);
+        config.set_preset_model(&ModelPreset::Fast, "custom/fast-model".to_string());
+        config.set_explainer_model("custom/explainer".to_string());
+        config.save_to(path.clone())?;
+
+        let loaded = Config::load_from(path)?;
+        assert_eq!(loaded.get_api_key(), Some("test-key"));
+        assert_eq!(loaded.get_preset_model(&ModelPreset::Fast), Some("custom/fast-model"));
+        assert_eq!(loaded.get_preset_model(&ModelPreset::Standard), None);
+        assert_eq!(loaded.get_explainer_model(), "custom/explainer");
 
         Ok(())
     }
