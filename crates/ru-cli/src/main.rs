@@ -568,12 +568,12 @@ fn display_script_with_safety(script: &str, report: &SafetyReport) {
     println!("{}", "-".repeat(40).dimmed());
 
     // Show syntax error if present
-    if !report.syntax_valid {
-        if let Some(ref error) = report.syntax_error {
-            println!();
-            println!("{}", "Syntax Error:".red().bold());
-            println!("  {}", error.red());
-        }
+    if !report.syntax_valid
+        && let Some(ref error) = report.syntax_error
+    {
+        println!();
+        println!("{}", "Syntax Error:".red().bold());
+        println!("  {}", error.red());
     }
 
     println!();

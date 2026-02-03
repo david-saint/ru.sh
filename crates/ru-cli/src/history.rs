@@ -60,10 +60,10 @@ pub fn log_execution(record: &ExecutionRecord) -> Result<()> {
     }
 
     // Check if rotation is needed
-    if let Ok(metadata) = fs::metadata(&path) {
-        if metadata.len() > MAX_HISTORY_SIZE {
-            rotate_history(&path)?;
-        }
+    if let Ok(metadata) = fs::metadata(&path)
+        && metadata.len() > MAX_HISTORY_SIZE
+    {
+        rotate_history(&path)?;
     }
 
     // Append the record as JSON line with restricted permissions (0600 on Unix)
