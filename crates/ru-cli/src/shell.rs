@@ -5,6 +5,7 @@ use std::str::FromStr;
 /// Supported shell types for script generation and execution
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[allow(clippy::enum_variant_names)]
 pub enum Shell {
     Bash,
     Zsh,

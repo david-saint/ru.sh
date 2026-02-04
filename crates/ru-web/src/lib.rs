@@ -1,3 +1,4 @@
+#[allow(clippy::unit_arg, clippy::unused_unit)]
 mod app;
 
 use wasm_bindgen::prelude::*;

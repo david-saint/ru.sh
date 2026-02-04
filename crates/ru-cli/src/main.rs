@@ -1192,12 +1192,11 @@ fn terminal_content_width(prefix_cols: usize) -> usize {
 /// Detect terminal width from the environment.
 fn term_width() -> Option<usize> {
     // Check COLUMNS env var first (set by most shells)
-    if let Ok(cols) = env::var("COLUMNS") {
-        if let Ok(w) = cols.parse::<usize>() {
-            if w > 0 {
-                return Some(w);
-            }
-        }
+    if let Ok(cols) = env::var("COLUMNS")
+        && let Ok(w) = cols.parse::<usize>()
+        && w > 0
+    {
+        return Some(w);
     }
     // Use ioctl on Unix
     #[cfg(unix)]

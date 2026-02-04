@@ -203,7 +203,7 @@ fn TerminalSimulation() -> impl IntoView {
             .expect("set_interval should work");
         closure.forget();
         move || {
-            let _ = window.clear_interval_with_handle(interval_id);
+            window.clear_interval_with_handle(interval_id);
         }
     });
 
@@ -241,7 +241,7 @@ fn TerminalSimulation() -> impl IntoView {
                 }) as Box<dyn FnMut()>);
                 let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
                     closure.as_ref().unchecked_ref(),
-                    action_ms as i32,
+                    action_ms,
                 );
                 closure.forget();
             }
@@ -528,7 +528,7 @@ fn InstallationBar() -> impl IntoView {
 
         set_copied.set(true);
 
-        let set_copied_clone = set_copied.clone();
+        let set_copied_clone = set_copied;
         let closure = Closure::wrap(Box::new(move || {
             set_copied_clone.set(false);
         }) as Box<dyn FnMut()>);
