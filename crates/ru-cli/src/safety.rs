@@ -205,19 +205,20 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
             description: "Fork bomb - will crash the system by exhausting resources",
         },
         DangerPattern {
-            regex: Regex::new(r">\s*/dev/sd[a-z]").unwrap(),
+            regex: Regex::new(r">\s*/dev/(sd[a-z]|vd[a-z]|nvme\d+n\d+|mmcblk\d+)").unwrap(),
             level: RiskLevel::Critical,
             category: WarningCategory::SystemDestruction,
             description: "Direct write to disk device - will destroy filesystem",
         },
         DangerPattern {
-            regex: Regex::new(r"dd\s+.*of=/dev/sd[a-z]").unwrap(),
+            regex: Regex::new(r"dd\s+.*of=/dev/(sd[a-z]|vd[a-z]|nvme\d+n\d+|mmcblk\d+)").unwrap(),
             level: RiskLevel::Critical,
             category: WarningCategory::SystemDestruction,
             description: "Writing directly to disk device with dd",
         },
         DangerPattern {
-            regex: Regex::new(r"mkfs(\.[a-z0-9]+)?\s+/dev/sd[a-z]").unwrap(),
+            regex: Regex::new(r"mkfs(\.[a-z0-9]+)?\s+/dev/(sd[a-z]|vd[a-z]|nvme\d+n\d+|mmcblk\d+)")
+                .unwrap(),
             level: RiskLevel::Critical,
             category: WarningCategory::SystemDestruction,
             description: "Formatting a disk device - will erase all data",
@@ -627,6 +628,24 @@ mod tests {
         assert_eq!(report.overall_risk, RiskLevel::Safe);
         assert!(report.warnings.is_empty());
         assert!(report.syntax_valid);
+    }
+
+    #[test]
+    fn test_analyze_critical_nvme_destruction() {
+        let report = analyze_script("mkfs.ext4 /dev/nvme0n1");
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_mmc_destruction() {
+        let report = analyze_script("dd if=/dev/zero of=/dev/mmcblk0");
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_vda_destruction() {
+        let report = analyze_script("echo 'bye' > /dev/vda");
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
     }
 
     #[test]
