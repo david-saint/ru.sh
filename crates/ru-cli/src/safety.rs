@@ -1007,8 +1007,7 @@ mod tests {
 
     #[test]
     fn test_powershell_execution_policy() {
-        let report =
-            analyze_script("Set-ExecutionPolicy Unrestricted", &Shell::PowerShell);
+        let report = analyze_script("Set-ExecutionPolicy Unrestricted", &Shell::PowerShell);
         assert_eq!(report.overall_risk, RiskLevel::High);
     }
 

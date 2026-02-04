@@ -20,11 +20,7 @@ impl Shell {
     #[cfg(unix)]
     pub fn detect() -> Self {
         if let Ok(shell_env) = std::env::var("SHELL") {
-            let shell_name = shell_env
-                .rsplit('/')
-                .next()
-                .unwrap_or("")
-                .to_lowercase();
+            let shell_name = shell_env.rsplit('/').next().unwrap_or("").to_lowercase();
             match shell_name.as_str() {
                 "bash" => Shell::Bash,
                 "zsh" => Shell::Zsh,

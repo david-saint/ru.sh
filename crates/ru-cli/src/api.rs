@@ -394,6 +394,7 @@ pub async fn explain_script(
     };
     let request = ChatRequest {
         model: model_id.to_string(),
+        max_tokens,
         messages: vec![
             ChatMessage {
                 role: "system",
@@ -410,7 +411,6 @@ pub async fn explain_script(
             },
         ],
         temperature: 0.0,
-        max_tokens: 1024,
     };
 
     let api_key = api_key.to_string();

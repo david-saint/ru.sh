@@ -596,6 +596,67 @@ mod tests {
     }
 
     #[test]
+    fn test_explain_verbosity_default() {
+        let config = Config::default();
+        assert_eq!(config.get_explain_verbosity(), ExplainVerbosity::Concise);
+    }
+
+    #[test]
+    fn test_explain_verbosity_set_get() {
+        let mut config = Config::default();
+        config.set_explain_verbosity(ExplainVerbosity::Verbose);
+        assert_eq!(config.get_explain_verbosity(), ExplainVerbosity::Verbose);
+    }
+
+    #[test]
+    fn test_explain_verbosity_clear() {
+        let mut config = Config::default();
+        config.set_explain_verbosity(ExplainVerbosity::Verbose);
+        config.clear_explain_verbosity();
+        assert_eq!(config.get_explain_verbosity(), ExplainVerbosity::Concise);
+    }
+
+    #[test]
+    fn test_explain_verbosity_from_str() {
+        assert_eq!(
+            ExplainVerbosity::from_str("concise").unwrap(),
+            ExplainVerbosity::Concise
+        );
+        assert_eq!(
+            ExplainVerbosity::from_str("verbose").unwrap(),
+            ExplainVerbosity::Verbose
+        );
+        assert_eq!(
+            ExplainVerbosity::from_str("summary").unwrap(),
+            ExplainVerbosity::Concise
+        );
+        assert_eq!(
+            ExplainVerbosity::from_str("detailed").unwrap(),
+            ExplainVerbosity::Verbose
+        );
+        assert_eq!(
+            ExplainVerbosity::from_str("CONCISE").unwrap(),
+            ExplainVerbosity::Concise
+        );
+        assert!(ExplainVerbosity::from_str("invalid").is_err());
+    }
+
+    #[test]
+    fn test_explain_verbosity_save_load() -> Result<()> {
+        let file = NamedTempFile::new()?;
+        let path = file.path().to_path_buf();
+
+        let mut config = Config::default();
+        config.set_explain_verbosity(ExplainVerbosity::Verbose);
+        config.save_to(path.clone())?;
+
+        let loaded = Config::load_from(path)?;
+        assert_eq!(loaded.get_explain_verbosity(), ExplainVerbosity::Verbose);
+
+        Ok(())
+    }
+
+    #[test]
     fn test_load_nonexistent_file() -> Result<()> {
         let path = PathBuf::from("/tmp/nonexistent-config-file-xyz.toml");
         // Ensure it doesn't exist
