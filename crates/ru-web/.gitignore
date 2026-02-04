@@ -1,0 +1,11 @@
+# Trunk / WASM build artifacts
+/dist/
+/pkg/
+/target/
+
+# Node modules (for Tailwind)
+/node_modules/
+
+# Local environment variables
+.env
+.env.local
