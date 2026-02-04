@@ -317,18 +317,32 @@ pub async fn explain_script(script: &str, api_key: &str, model_id: &str) -> Resu
 fn strip_code_blocks(content: &str) -> String {
     let content = content.trim();
 
-    // Check for ```bash or ```sh or just ```
     if content.starts_with("```") {
-        let lines: Vec<&str> = content.lines().collect();
-        if lines.len() >= 2 {
-            // Skip first line (```bash) and last line (```)
-            let end = if lines.last() == Some(&"```") {
-                lines.len() - 1
+        // Find the end of the first line to skip the opening fence
+        if let Some(first_newline) = content.find('\n') {
+            let start = first_newline + 1;
+
+            // Check if there is anything after the first line
+            if start >= content.len() {
+                return String::new();
+            }
+
+            // Check for closing fence. We check for "\n```" which handles both
+            // Unix (\n) and Windows (\r\n) line endings (since \r\n ends with \n)
+            let end = if content.ends_with("\n```") {
+                content.len() - 4
             } else {
-                lines.len()
+                content.len()
             };
 
-            return lines[1..end].join("\n").trim().to_string();
+            if start < end {
+                return content[start..end].trim().to_string();
+            } else {
+                return String::new();
+            }
+        } else {
+            // Only one line starting with ``` (the opening fence itself)
+            return String::new();
         }
     }
 
@@ -420,5 +434,11 @@ mod tests {
     fn test_classify_api_error_payment_required() {
         let (user_msg, _) = classify_api_error(StatusCode::PAYMENT_REQUIRED, "billing info");
         assert!(user_msg.contains("balance"));
+    }
+
+    #[test]
+    fn test_strip_code_blocks_crlf() {
+        let input = "```bash\r\necho hello\r\n```";
+        assert_eq!(strip_code_blocks(input), "echo hello");
     }
 }
