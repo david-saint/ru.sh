@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Model Performance Comparison</title>
+    <style>
+      :root {
+        --bg-color: #0a0c10;
+        --card-bg: rgba(24, 27, 33, 0.7);
+        --text-primary: #f8fafc;
+        --text-secondary: #94a3b8;
+        --accent: #3b82f6;
+        --success: #10b981;
+        --danger: #ef4444;
+        --warning: #f59e0b;
+        --border: rgba(255, 255, 255, 0.1);
+        --glass-bg: rgba(255, 255, 255, 0.03);
+        --glass-border: rgba(255, 255, 255, 0.08);
+      }
+
+      body {
+        font-family:
+          "Inter",
+          system-ui,
+          -apple-system,
+          sans-serif;
+        background-color: var(--bg-color);
+        background-image:
+          radial-gradient(
+            circle at 50% 0%,
+            rgba(59, 130, 246, 0.05) 0%,
+            transparent 50%
+          ),
+          radial-gradient(
+            circle at 0% 100%,
+            rgba(59, 130, 246, 0.02) 0%,
+            transparent 50%
+          );
+        color: var(--text-primary);
+        margin: 0;
+        padding: 40px 24px;
+        line-height: 1.6;
+        min-height: 100vh;
+      }
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        margin-bottom: 40px;
+        padding-bottom: 24px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .header h1 {
+        font-size: 32px;
+        font-weight: 800;
+        letter-spacing: -0.025em;
+        margin-bottom: 4px;
+      }
+
+      .controls {
+        display: flex;
+        gap: 20px;
+        background: var(--glass-bg);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        padding: 16px 24px;
+        border-radius: 14px;
+        margin-bottom: 40px;
+        align-items: center;
+        border: 1px solid var(--glass-border);
+      }
+
+      select {
+        background-color: rgba(255, 255, 255, 0.05);
+        color: var(--text-primary);
+        border: 1px solid var(--glass-border);
+        padding: 10px 14px;
+        border-radius: 8px;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      select:hover {
+        background-color: rgba(255, 255, 255, 0.08);
+        border-color: rgba(255, 255, 255, 0.2);
+      }
+
+      label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-secondary);
+      }
+
+      .charts-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 20px;
+        margin-bottom: 40px;
+      }
+
+      .chart-container {
+        background: var(--card-bg);
+        backdrop-filter: blur(12px);
+        padding: 20px;
+        border-radius: 16px;
+        border: 1px solid var(--glass-border);
+        height: 350px;
+      }
+
+      .chart-title {
+        font-size: 14px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+        margin-bottom: 20px;
+      }
+
+      .performance-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        background-color: var(--card-bg);
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+      }
+
+      th,
+      td {
+        padding: 12px 16px;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+        font-size: 13px;
+      }
+
+      th {
+        background-color: rgba(255, 255, 255, 0.02);
+        font-weight: 600;
+        color: var(--text-secondary);
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      tr:last-child td {
+        border-bottom: none;
+      }
+
+      .progress-bg {
+        background: rgba(255, 255, 255, 0.05);
+        height: 6px;
+        width: 100px;
+        border-radius: 3px;
+        overflow: hidden;
+        display: inline-block;
+        vertical-align: middle;
+        margin-right: 8px;
+      }
+
+      .progress-bar {
+        height: 100%;
+        border-radius: 3px;
+      }
+
+      #loading {
+        text-align: center;
+        padding: 40px;
+        color: var(--text-secondary);
+      }
+
+      a.nav-link {
+        color: var(--accent);
+        text-decoration: none;
+        font-size: 14px;
+        font-weight: 500;
+      }
+
+      a.nav-link:hover {
+        text-decoration: underline;
+      }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <div>
+          <h1>Model Performance Comparison</h1>
+          <div style="color: var(--text-secondary)">
+            Comparing target models evaluated by a selected judge
+          </div>
+        </div>
+        <a href="visualization.html" class="nav-link"
+          >← Back to Detailed View</a
+        >
+      </div>
+
+      <div class="controls">
+        <label>Selected Judge</label>
+        <select id="judge-select"></select>
+      </div>
+
+      <div id="loading">Loading data from data.json...</div>
+
+      <div id="dashboard" style="display: none">
+        <div class="charts-grid">
+          <div class="chart-container">
+            <div class="chart-title">Pass Rate (%)</div>
+            <canvas id="passRateChart"></canvas>
+          </div>
+          <div class="chart-container">
+            <div class="chart-title">Agreement w/ Human (%)</div>
+            <canvas id="agreementChart"></canvas>
+          </div>
+          <div class="chart-container">
+            <div class="chart-title">Avg Latency (ms)</div>
+            <canvas id="latencyChart"></canvas>
+          </div>
+          <div class="chart-container">
+            <div class="chart-title">Total Cost ($)</div>
+            <canvas id="costChart"></canvas>
+          </div>
+        </div>
+
+        <table class="performance-table">
+          <thead>
+            <tr>
+              <th style="width: 30%">Model Name</th>
+              <th>Pass Rate</th>
+              <th>Agreement</th>
+              <th>Avg Latency</th>
+              <th>Total Cost</th>
+              <th>Strictness*</th>
+              <th>Lenience**</th>
+            </tr>
+          </thead>
+          <tbody id="table-body"></tbody>
+        </table>
+
+        <div
+          style="
+            margin-top: 20px;
+            font-size: 12px;
+            color: var(--text-secondary);
+          "
+        >
+          * Strictness: % of human-correct prompts the judge rejected.<br />
+          ** Lenience: % of human-incorrect prompts the judge passed.
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let fullData = {};
+      let judges = [];
+      let charts = {};
+
+      async function loadData() {
+        try {
+          const response = await fetch("data.json");
+          const jsonData = await response.json();
+          fullData = jsonData.models;
+          judges = jsonData.meta.judges;
+
+          document.getElementById("loading").style.display = "none";
+          document.getElementById("dashboard").style.display = "block";
+
+          init();
+        } catch (e) {
+          document.getElementById("loading").innerHTML =
+            "Error loading data.json";
+          console.error(e);
+        }
+      }
+
+      function init() {
+        const select = document.getElementById("judge-select");
+        judges.forEach((j) => {
+          const opt = document.createElement("option");
+          opt.value = j;
+          opt.textContent = j;
+          select.appendChild(opt);
+        });
+
+        if (judges.includes("Claude Code")) {
+          select.value = "Claude Code";
+        }
+
+        select.addEventListener("change", updateDashboard);
+        updateDashboard();
+      }
+
+      function updateDashboard() {
+        const selectedJudge = document.getElementById("judge-select").value;
+        const models = Object.keys(fullData).sort();
+
+        const metrics = models.map((model) => {
+          const rows = fullData[model];
+          let passed = 0;
+          let totalEvaluated = 0;
+          let agreement = 0;
+          let totalLatency = 0;
+          let totalCost = 0;
+          let strictCount = 0; // Judge false, human true
+          let humanCorrectTotal = 0;
+          let lenientCount = 0; // Judge true, human false
+          let humanIncorrectTotal = 0;
+
+          rows.forEach((row) => {
+            const verdict = row.evaluations[selectedJudge];
+            if (verdict !== undefined && verdict !== null) {
+              totalEvaluated++;
+              if (verdict === true) passed++;
+              if (verdict === row.human_correct) agreement++;
+
+              totalLatency += row.latency_ms || 0;
+              totalCost += row.cost || 0;
+
+              if (row.human_correct) {
+                humanCorrectTotal++;
+                if (verdict === false) strictCount++;
+              } else {
+                humanIncorrectTotal++;
+                if (verdict === true) lenientCount++;
+              }
+            }
+          });
+
+          return {
+            name: model,
+            passRate: totalEvaluated > 0 ? (passed / totalEvaluated) * 100 : 0,
+            agreementRate:
+              totalEvaluated > 0 ? (agreement / totalEvaluated) * 100 : 0,
+            avgLatency: totalEvaluated > 0 ? totalLatency / totalEvaluated : 0,
+            totalCost: totalCost,
+            strictness:
+              humanCorrectTotal > 0
+                ? (strictCount / humanCorrectTotal) * 100
+                : 0,
+            lenience:
+              humanIncorrectTotal > 0
+                ? (lenientCount / humanIncorrectTotal) * 100
+                : 0,
+            total: totalEvaluated,
+          };
+        });
+
+        renderCharts(metrics);
+        renderTable(metrics);
+      }
+
+      function renderCharts(metrics) {
+        const labels = metrics.map((m) =>
+          m.name
+            .split("_")
+            .pop()
+            .replace(/:nitro/g, ""),
+        );
+        const passRates = metrics.map((m) => m.passRate);
+        const agreementRates = metrics.map((m) => m.agreementRate);
+        const latencies = metrics.map((m) => m.avgLatency);
+        const costs = metrics.map((m) => m.totalCost);
+
+        if (charts.passRate) charts.passRate.destroy();
+        if (charts.agreement) charts.agreement.destroy();
+        if (charts.latency) charts.latency.destroy();
+        if (charts.cost) charts.cost.destroy();
+
+        const commonOptions = {
+          indexAxis: "y",
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+          },
+          scales: {
+            x: {
+              beginAtZero: true,
+              grid: { color: "rgba(255,255,255,0.1)" },
+              ticks: { color: "#94a3b8" },
+            },
+            y: {
+              grid: { display: false },
+              ticks: { color: "#f8fafc", font: { size: 11 } },
+            },
+          },
+        };
+
+        const pctOptions = {
+          ...commonOptions,
+          scales: {
+            ...commonOptions.scales,
+            x: { ...commonOptions.scales.x, max: 100 },
+          },
+        };
+
+        charts.passRate = new Chart(document.getElementById("passRateChart"), {
+          type: "bar",
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                data: passRates,
+                backgroundColor: "#3b82f6",
+                borderRadius: 4,
+              },
+            ],
+          },
+          options: pctOptions,
+        });
+
+        charts.agreement = new Chart(
+          document.getElementById("agreementChart"),
+          {
+            type: "bar",
+            data: {
+              labels: labels,
+              datasets: [
+                {
+                  data: agreementRates,
+                  backgroundColor: "#10b981",
+                  borderRadius: 4,
+                },
+              ],
+            },
+            options: pctOptions,
+          },
+        );
+
+        charts.latency = new Chart(document.getElementById("latencyChart"), {
+          type: "bar",
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                data: latencies,
+                backgroundColor: "#f59e0b",
+                borderRadius: 4,
+              },
+            ],
+          },
+          options: commonOptions,
+        });
+
+        charts.cost = new Chart(document.getElementById("costChart"), {
+          type: "bar",
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                data: costs,
+                backgroundColor: "#ef4444",
+                borderRadius: 4,
+              },
+            ],
+          },
+          options: commonOptions,
+        });
+      }
+
+      function renderTable(metrics) {
+        const tbody = document.getElementById("table-body");
+        tbody.innerHTML = "";
+
+        metrics.forEach((m) => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td style="font-weight: 500;">${m.name}</td>
+            <td>
+              <div class="progress-bg"><div class="progress-bar" style="width: ${m.passRate}%; background: #3b82f6;"></div></div>
+              ${m.passRate.toFixed(1)}%
+            </td>
+            <td>
+              <div class="progress-bg"><div class="progress-bar" style="width: ${m.agreementRate}%; background: #10b981;"></div></div>
+              ${m.agreementRate.toFixed(1)}%
+            </td>
+            <td>${m.avgLatency.toFixed(0)} ms</td>
+            <td>$${m.totalCost.toFixed(4)}</td>
+            <td style="color: ${m.strictness > 20 ? "#ef4444" : "inherit"}">${m.strictness.toFixed(1)}%</td>
+            <td style="color: ${m.lenience > 20 ? "#ef4444" : "inherit"}">${m.lenience.toFixed(1)}%</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+
+      loadData();
+    </script>
+  </body>
+</html>
