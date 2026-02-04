@@ -12,6 +12,8 @@ pub const DEFAULT_MODEL_STANDARD: &str = "google/gemini-3-flash-preview:nitro";
 pub const DEFAULT_MODEL_QUALITY: &str = "anthropic/claude-opus-4.5:nitro";
 /// Default model for Explainer
 pub const DEFAULT_MODEL_EXPLAINER: &str = "openai/gpt-4o-mini:nitro";
+/// Default script execution timeout in seconds (5 minutes)
+pub const DEFAULT_SCRIPT_TIMEOUT_SECS: u64 = 300;
 
 /// Model preset for quick selection
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -110,6 +112,8 @@ pub struct Config {
     pub daily_limit: Option<u32>,
     /// Monthly request limit (warning threshold)
     pub monthly_limit: Option<u32>,
+    /// Script execution timeout in seconds
+    pub script_timeout: Option<u64>,
 }
 
 impl Config {
@@ -318,6 +322,21 @@ impl Config {
     /// Clear the monthly request limit
     pub fn clear_monthly_limit(&mut self) {
         self.monthly_limit = None;
+    }
+
+    /// Get the script execution timeout in seconds
+    pub fn get_script_timeout(&self) -> u64 {
+        self.script_timeout.unwrap_or(DEFAULT_SCRIPT_TIMEOUT_SECS)
+    }
+
+    /// Set the script execution timeout in seconds
+    pub fn set_script_timeout(&mut self, timeout: u64) {
+        self.script_timeout = Some(timeout);
+    }
+
+    /// Clear the script execution timeout (revert to default)
+    pub fn clear_script_timeout(&mut self) {
+        self.script_timeout = None;
     }
 }
 

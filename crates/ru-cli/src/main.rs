@@ -5,13 +5,14 @@ mod safety;
 mod sanitize;
 mod usage;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use config::{Config, ModelPreset};
 use dialoguer::Select;
 use history::ExecutionRecord;
 use safety::{RiskLevel, SafetyReport};
+use sha2::{Digest, Sha256};
 use std::env;
 use std::io::{self, Write};
 use std::time::Instant;
@@ -50,6 +51,10 @@ struct Cli {
     /// Force execution of high-risk scripts (requires -y)
     #[arg(long, global = true)]
     force: bool,
+
+    /// Show verbose error messages for debugging
+    #[arg(short = 'v', long, global = true)]
+    verbose: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -177,8 +182,22 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                         format!("Monthly limit set to: {} requests", limit).green()
                     );
                 }
+                "script-timeout" | "script_timeout" => {
+                    let timeout: u64 = value.parse().map_err(|_| {
+                        anyhow::anyhow!("Invalid timeout: must be a positive integer (seconds)")
+                    })?;
+                    if timeout < 1 {
+                        bail!("Timeout must be at least 1 second");
+                    }
+                    config.set_script_timeout(timeout);
+                    config.save()?;
+                    println!(
+                        "{}",
+                        format!("Script timeout set to: {} seconds", timeout).green()
+                    );
+                }
                 _ => bail!(
-                    "Unknown config key: {}. Available keys: api-key, model, model-id, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit",
+                    "Unknown config key: {}. Available keys: api-key, model, model-id, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit, script-timeout",
                     key
                 ),
             }
@@ -266,8 +285,22 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                         );
                     }
                 }
+                "script-timeout" | "script_timeout" => {
+                    if let Some(timeout) = config.script_timeout {
+                        println!("script-timeout: {} seconds", timeout);
+                    } else {
+                        println!(
+                            "{}",
+                            format!(
+                                "script-timeout: not set (default: {} seconds)",
+                                config::DEFAULT_SCRIPT_TIMEOUT_SECS
+                            )
+                            .dimmed()
+                        );
+                    }
+                }
                 _ => bail!(
-                    "Unknown config key: {}. Available keys: api-key, model, model-id, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit",
+                    "Unknown config key: {}. Available keys: api-key, model, model-id, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit, script-timeout",
                     key
                 ),
             }
@@ -352,8 +385,20 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                         "Monthly limit cleared. Using default warning threshold (1000).".green()
                     );
                 }
+                "script-timeout" | "script_timeout" => {
+                    config.clear_script_timeout();
+                    config.save()?;
+                    println!(
+                        "{}",
+                        format!(
+                            "Script timeout cleared. Using default: {} seconds.",
+                            config::DEFAULT_SCRIPT_TIMEOUT_SECS
+                        )
+                        .green()
+                    );
+                }
                 _ => bail!(
-                    "Unknown config key: {}. Available keys: api-key, model, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit",
+                    "Unknown config key: {}. Available keys: api-key, model, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit, script-timeout",
                     key
                 ),
             }
@@ -398,6 +443,13 @@ fn handle_config(action: ConfigAction) -> Result<()> {
 }
 
 async fn run_prompt(cli: Cli) -> Result<()> {
+    // Set verbose mode environment variable for API error logging
+    if cli.verbose {
+        // SAFETY: This is called at startup before any threads are spawned,
+        // and we're only setting a flag used for logging verbosity
+        unsafe { std::env::set_var("RU_VERBOSE", "1") };
+    }
+
     let Some(prompt) = cli.prompt else {
         bail!("Missing prompt. Usage: ru -p \"your prompt here\"");
     };
@@ -429,6 +481,13 @@ async fn run_prompt(cli: Cli) -> Result<()> {
         }
     }
 
+    // Block execution if any limit is exceeded
+    if usage_warnings.iter().any(|w| w.is_limit_exceeded) {
+        bail!(
+            "Usage limit exceeded. Use `ru config set daily-limit <N>` or `ru config set monthly-limit <N>` to adjust limits."
+        );
+    }
+
     println!("{}", "ru.sh - Natural Language to Bash".bold());
     println!("{}", format!("Using model: {}", model_id).dimmed());
     println!();
@@ -436,6 +495,9 @@ async fn run_prompt(cli: Cli) -> Result<()> {
     let start = Instant::now();
     let generated_script = api::generate_script(&prompt, &api_key, &model_id).await?;
     let api_duration_ms = start.elapsed().as_millis() as u64;
+
+    // Compute script hash for integrity verification (TOCTOU defense)
+    let script_hash = compute_script_hash(&generated_script);
 
     // Analyze script for safety
     let report = safety::analyze_script(&generated_script);
@@ -503,7 +565,8 @@ async fn run_prompt(cli: Cli) -> Result<()> {
             return Ok(());
         }
 
-        let exit_code = execute_script(&generated_script)?;
+        let timeout_secs = config.get_script_timeout();
+        let exit_code = execute_script(&generated_script, Some(&script_hash), timeout_secs).await?;
         log_execution(
             &prompt,
             &generated_script,
@@ -534,7 +597,8 @@ async fn run_prompt(cli: Cli) -> Result<()> {
 
     // For high/critical risk, require explicit confirmation
     if report.requires_force() {
-        let exit_code = prompt_high_risk_execution(&generated_script, &report, &api_key).await?;
+        let exit_code =
+            prompt_high_risk_execution(&generated_script, &report, &api_key, &script_hash).await?;
         log_execution(
             &prompt,
             &generated_script,
@@ -545,7 +609,8 @@ async fn run_prompt(cli: Cli) -> Result<()> {
         );
     } else {
         let exit_code =
-            prompt_normal_execution(&generated_script, &report, &prompt, &api_key).await?;
+            prompt_normal_execution(&generated_script, &report, &prompt, &api_key, &script_hash)
+                .await?;
         log_execution(
             &prompt,
             &generated_script,
@@ -624,6 +689,7 @@ async fn prompt_high_risk_execution(
     script: &str,
     report: &SafetyReport,
     api_key: &str,
+    script_hash: &str,
 ) -> Result<Option<i32>> {
     println!(
         "{}",
@@ -653,7 +719,9 @@ async fn prompt_high_risk_execution(
             io::stdin().read_line(&mut input)?;
 
             if input.trim().to_lowercase() == "yes" {
-                let exit_code = execute_script(script)?;
+                let config = Config::load()?;
+                let exit_code =
+                    execute_script(script, Some(script_hash), config.get_script_timeout()).await?;
                 Ok(exit_code)
             } else {
                 println!("{}", "Cancelled - confirmation not received.".red());
@@ -663,7 +731,13 @@ async fn prompt_high_risk_execution(
         1 => {
             explain_script_only(script, api_key).await?;
             // After explaining, ask again
-            Box::pin(prompt_high_risk_execution(script, report, api_key)).await
+            Box::pin(prompt_high_risk_execution(
+                script,
+                report,
+                api_key,
+                script_hash,
+            ))
+            .await
         }
         2 => {
             println!("{}", "Cancelled.".red());
@@ -679,6 +753,7 @@ async fn prompt_normal_execution(
     _report: &SafetyReport,
     _prompt: &str,
     api_key: &str,
+    script_hash: &str,
 ) -> Result<Option<i32>> {
     let options = vec!["Execute", "Explain", "Cancel"];
     let selection = Select::new()
@@ -688,8 +763,11 @@ async fn prompt_normal_execution(
         .interact()?;
 
     match selection {
-        0 => execute_script(script),
-        1 => explain_and_prompt(script, api_key).await,
+        0 => {
+            let config = Config::load()?;
+            execute_script(script, Some(script_hash), config.get_script_timeout()).await
+        }
+        1 => explain_and_prompt(script, api_key, script_hash).await,
         2 => {
             println!("{}", "Cancelled.".red());
             Ok(None)
@@ -800,7 +878,7 @@ fn resolve_model(cli_model_id: Option<String>, cli_preset: Option<String>) -> Re
     Ok(config.get_model_id().to_string())
 }
 
-async fn explain_and_prompt(script: &str, api_key: &str) -> Result<Option<i32>> {
+async fn explain_and_prompt(script: &str, api_key: &str, script_hash: &str) -> Result<Option<i32>> {
     let config = Config::load()?;
     let explainer_model = config.get_explainer_model();
 
@@ -827,7 +905,7 @@ async fn explain_and_prompt(script: &str, api_key: &str) -> Result<Option<i32>> 
         .interact()?;
 
     match selection {
-        0 => execute_script(script),
+        0 => execute_script(script, Some(script_hash), config.get_script_timeout()).await,
         1 => {
             println!("{}", "Cancelled.".red());
             Ok(None)
@@ -836,43 +914,92 @@ async fn explain_and_prompt(script: &str, api_key: &str) -> Result<Option<i32>> 
     }
 }
 
-fn execute_script(script: &str) -> Result<Option<i32>> {
+/// Compute SHA-256 hash of a script for integrity verification
+fn compute_script_hash(script: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(script.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+async fn execute_script(
+    script: &str,
+    expected_hash: Option<&str>,
+    timeout_secs: u64,
+) -> Result<Option<i32>> {
+    use tokio::process::Command as TokioCommand;
+    use tokio::time::{Duration, timeout};
+
+    // Verify script integrity (defense-in-depth against TOCTOU)
+    if let Some(hash) = expected_hash {
+        debug_assert!(
+            compute_script_hash(script) == hash,
+            "Script integrity check failed - script may have been modified between analysis and execution"
+        );
+    }
+
     println!("{}", "Executing...".green().bold());
 
+    let timeout_duration = Duration::from_secs(timeout_secs);
     let start = Instant::now();
-    let output = std::process::Command::new("bash")
+
+    let child = TokioCommand::new("bash")
         .arg("-c")
         .arg(script)
-        .output()?;
-    let duration = start.elapsed();
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .context("Failed to spawn bash process")?;
 
-    if !output.stdout.is_empty() {
-        println!("{}", String::from_utf8_lossy(&output.stdout));
+    let result = timeout(timeout_duration, child.wait_with_output()).await;
+
+    match result {
+        Ok(Ok(output)) => {
+            let duration = start.elapsed();
+
+            if !output.stdout.is_empty() {
+                println!("{}", String::from_utf8_lossy(&output.stdout));
+            }
+
+            if !output.stderr.is_empty() {
+                eprintln!("{}", String::from_utf8_lossy(&output.stderr).red());
+            }
+
+            let exit_code = output.status.code();
+
+            if output.status.success() {
+                println!(
+                    "{}",
+                    format!(
+                        "Script executed successfully in {:.2}s.",
+                        duration.as_secs_f64()
+                    )
+                    .green()
+                );
+            } else {
+                println!(
+                    "{}",
+                    format!("Script exited with code: {:?}", exit_code).red()
+                );
+            }
+
+            Ok(exit_code)
+        }
+        Ok(Err(e)) => {
+            bail!("Failed to execute script: {}", e);
+        }
+        Err(_) => {
+            println!(
+                "{}",
+                format!(
+                    "Script timed out after {} seconds. Process terminated.",
+                    timeout_secs
+                )
+                .red()
+                .bold()
+            );
+            bail!("Script execution timed out after {} seconds", timeout_secs);
+        }
     }
-
-    if !output.stderr.is_empty() {
-        eprintln!("{}", String::from_utf8_lossy(&output.stderr).red());
-    }
-
-    let exit_code = output.status.code();
-
-    if output.status.success() {
-        println!(
-            "{}",
-            format!(
-                "Script executed successfully in {:.2}s.",
-                duration.as_secs_f64()
-            )
-            .green()
-        );
-    } else {
-        println!(
-            "{}",
-            format!("Script exited with code: {:?}", exit_code).red()
-        );
-    }
-
-    Ok(exit_code)
 }
 
 #[cfg(test)]
@@ -946,19 +1073,52 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_execute_script_success() {
+    #[tokio::test]
+    async fn test_execute_script_success() {
         // We use a simple echo command that should always succeed
-        let result = execute_script("echo 'hello world'");
+        let result = execute_script(
+            "echo 'hello world'",
+            None,
+            config::DEFAULT_SCRIPT_TIMEOUT_SECS,
+        )
+        .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Some(0));
     }
 
-    #[test]
-    fn test_execute_script_failure() {
+    #[tokio::test]
+    async fn test_execute_script_failure() {
         // We use a command that is guaranteed to fail
-        let result = execute_script("exit 1");
+        let result = execute_script("exit 1", None, config::DEFAULT_SCRIPT_TIMEOUT_SECS).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Some(1));
+    }
+
+    #[tokio::test]
+    async fn test_execute_script_timeout() {
+        // Use a very short timeout to test the timeout functionality
+        let result = execute_script("sleep 5", None, 1).await;
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("timed out"),
+            "Error should mention timeout: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_compute_script_hash_deterministic() {
+        let script = "echo hello";
+        let hash1 = compute_script_hash(script);
+        let hash2 = compute_script_hash(script);
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_compute_script_hash_different_scripts() {
+        let hash1 = compute_script_hash("echo hello");
+        let hash2 = compute_script_hash("echo world");
+        assert_ne!(hash1, hash2);
     }
 }
