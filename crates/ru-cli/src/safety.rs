@@ -802,19 +802,19 @@ mod tests {
 
     #[test]
     fn test_analyze_critical_nvme_destruction() {
-        let report = analyze_script("mkfs.ext4 /dev/nvme0n1");
+        let report = analyze_script("mkfs.ext4 /dev/nvme0n1", &Shell::Bash);
         assert_eq!(report.overall_risk, RiskLevel::Critical);
     }
 
     #[test]
     fn test_analyze_critical_mmc_destruction() {
-        let report = analyze_script("dd if=/dev/zero of=/dev/mmcblk0");
+        let report = analyze_script("dd if=/dev/zero of=/dev/mmcblk0", &Shell::Bash);
         assert_eq!(report.overall_risk, RiskLevel::Critical);
     }
 
     #[test]
     fn test_analyze_critical_vda_destruction() {
-        let report = analyze_script("echo 'bye' > /dev/vda");
+        let report = analyze_script("echo 'bye' > /dev/vda", &Shell::Bash);
         assert_eq!(report.overall_risk, RiskLevel::Critical);
     }
 
