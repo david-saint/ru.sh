@@ -258,6 +258,31 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
             category: WarningCategory::PrivilegeEscalation,
             description: "Modifying sudoers file - privilege escalation risk",
         },
+        // === HIGH: Obfuscation/Shell injection ===
+        DangerPattern {
+            regex: Regex::new(r"\|\s*(ba)?sh\b").unwrap(),
+            level: RiskLevel::High,
+            category: WarningCategory::RemoteCodeExecution,
+            description: "Piping content to shell - may execute arbitrary code",
+        },
+        DangerPattern {
+            regex: Regex::new(r"base64\s+(-d|--decode)\s*\|\s*(ba)?sh").unwrap(),
+            level: RiskLevel::High,
+            category: WarningCategory::RemoteCodeExecution,
+            description: "Base64 decode piped to shell - classic obfuscation technique",
+        },
+        DangerPattern {
+            regex: Regex::new(r"source\s+/dev/stdin").unwrap(),
+            level: RiskLevel::High,
+            category: WarningCategory::RemoteCodeExecution,
+            description: "Sourcing from stdin - executes piped content in current shell",
+        },
+        DangerPattern {
+            regex: Regex::new(r"\.\s+/dev/stdin").unwrap(),
+            level: RiskLevel::High,
+            category: WarningCategory::RemoteCodeExecution,
+            description: "Dot-sourcing from stdin - executes piped content in current shell",
+        },
         // === MEDIUM: Caution required ===
         DangerPattern {
             regex: Regex::new(r"\bsudo\b").unwrap(),
@@ -288,6 +313,25 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
             level: RiskLevel::Medium,
             category: WarningCategory::DynamicExecution,
             description: "Backtick command substitution",
+        },
+        // === MEDIUM: Obfuscation detection ===
+        DangerPattern {
+            regex: Regex::new(r"base64\s+(-d|--decode)").unwrap(),
+            level: RiskLevel::Medium,
+            category: WarningCategory::DynamicExecution,
+            description: "Base64 decoding - may be used to obfuscate commands",
+        },
+        DangerPattern {
+            regex: Regex::new(r#"printf\s+['"]\\x[0-9a-fA-F]"#).unwrap(),
+            level: RiskLevel::Medium,
+            category: WarningCategory::DynamicExecution,
+            description: "Hex-encoded printf - may be obfuscating commands",
+        },
+        DangerPattern {
+            regex: Regex::new(r"xxd\s+(-r|--reverse)").unwrap(),
+            level: RiskLevel::Medium,
+            category: WarningCategory::DynamicExecution,
+            description: "xxd reverse - may be decoding obfuscated content",
         },
         // === LOW: Informational ===
         DangerPattern {
