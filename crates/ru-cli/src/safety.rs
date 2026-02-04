@@ -283,6 +283,19 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
             category: WarningCategory::RemoteCodeExecution,
             description: "Dot-sourcing from stdin - executes piped content in current shell",
         },
+        // === HIGH: Network/Persistence threats ===
+        DangerPattern {
+            regex: Regex::new(r"\b(ncat|nc|netcat|socat)\b").unwrap(),
+            level: RiskLevel::High,
+            category: WarningCategory::RemoteCodeExecution,
+            description: "Network tool often used for reverse shells",
+        },
+        DangerPattern {
+            regex: Regex::new(r"crontab\s+-[a-zA-Z]*e").unwrap(),
+            level: RiskLevel::High,
+            category: WarningCategory::PrivilegeEscalation,
+            description: "Editing crontab - persistence mechanism for malicious code",
+        },
         // === MEDIUM: Caution required ===
         DangerPattern {
             regex: Regex::new(r"\bsudo\b").unwrap(),
@@ -332,6 +345,45 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
             level: RiskLevel::Medium,
             category: WarningCategory::DynamicExecution,
             description: "xxd reverse - may be decoding obfuscated content",
+        },
+        // === MEDIUM: Credential/key access ===
+        DangerPattern {
+            regex: Regex::new(r"\.bash_history").unwrap(),
+            level: RiskLevel::Medium,
+            category: WarningCategory::PrivilegeEscalation,
+            description: "Accessing bash history - may contain credentials",
+        },
+        DangerPattern {
+            regex: Regex::new(r"\.ssh/(id_|authorized_keys|known_hosts)").unwrap(),
+            level: RiskLevel::Medium,
+            category: WarningCategory::PrivilegeEscalation,
+            description: "Accessing SSH keys or config - sensitive authentication data",
+        },
+        // === MEDIUM: Supply chain risk ===
+        DangerPattern {
+            regex: Regex::new(r"(pip|pip3)\s+install").unwrap(),
+            level: RiskLevel::Medium,
+            category: WarningCategory::RemoteCodeExecution,
+            description: "Installing Python packages - supply chain risk",
+        },
+        DangerPattern {
+            regex: Regex::new(r"npm\s+install\s+(-g|--global)").unwrap(),
+            level: RiskLevel::Medium,
+            category: WarningCategory::RemoteCodeExecution,
+            description: "Installing global npm packages - supply chain risk",
+        },
+        // === MEDIUM: Bulk deletion ===
+        DangerPattern {
+            regex: Regex::new(r"xargs\s+.*\brm\b").unwrap(),
+            level: RiskLevel::Medium,
+            category: WarningCategory::DataLoss,
+            description: "Bulk deletion with xargs - verify file list carefully",
+        },
+        DangerPattern {
+            regex: Regex::new(r"find\s+.*-exec\s+.*\brm\b").unwrap(),
+            level: RiskLevel::Medium,
+            category: WarningCategory::DataLoss,
+            description: "Bulk deletion with find -exec - verify search criteria",
         },
         // === LOW: Informational ===
         DangerPattern {
