@@ -108,6 +108,8 @@ pub struct Config {
     pub preset_models: PresetModels,
     /// Custom model for the explainer feature
     pub explainer_model: Option<String>,
+    /// Target shell (bash, zsh, sh, fish, powershell, cmd)
+    pub shell: Option<String>,
     /// Daily request limit (warning threshold)
     pub daily_limit: Option<u32>,
     /// Monthly request limit (warning threshold)
@@ -337,6 +339,21 @@ impl Config {
     /// Clear the script execution timeout (revert to default)
     pub fn clear_script_timeout(&mut self) {
         self.script_timeout = None;
+    }
+
+    /// Get the shell setting
+    pub fn get_shell(&self) -> Option<&str> {
+        self.shell.as_deref()
+    }
+
+    /// Set the shell
+    pub fn set_shell(&mut self, shell: String) {
+        self.shell = Some(shell);
+    }
+
+    /// Clear the shell (revert to auto-detect)
+    pub fn clear_shell(&mut self) {
+        self.shell = None;
     }
 }
 

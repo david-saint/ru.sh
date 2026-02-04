@@ -3,6 +3,7 @@ mod config;
 mod history;
 mod safety;
 mod sanitize;
+mod shell;
 mod usage;
 
 use anyhow::{Context, Result, bail};
@@ -13,13 +14,14 @@ use dialoguer::Select;
 use history::ExecutionRecord;
 use safety::{RiskLevel, SafetyReport};
 use sha2::{Digest, Sha256};
+use shell::Shell;
 use std::env;
 use std::io::{self, Write};
 use std::time::Instant;
 
 #[derive(Parser, Debug)]
 #[command(name = "ru")]
-#[command(author, version, about = "Convert natural language to bash scripts")]
+#[command(author, version, about = "Convert natural language to shell scripts")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -39,6 +41,10 @@ struct Cli {
     /// Custom model ID (overrides preset)
     #[arg(long, global = true)]
     model_id: Option<String>,
+
+    /// Target shell (bash, zsh, sh, fish, powershell, cmd). Auto-detected if omitted.
+    #[arg(long, global = true)]
+    shell: Option<String>,
 
     /// Skip confirmation and execute immediately (use with caution)
     #[arg(short = 'y', long, global = true)]
@@ -70,21 +76,21 @@ enum Commands {
 enum ConfigAction {
     /// Set a configuration value
     Set {
-        /// The key to set (api-key, model, model-id, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit)
+        /// The key to set (api-key, model, model-id, shell, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit)
         key: String,
         /// The value to set
         value: String,
     },
     /// Get a configuration value
     Get {
-        /// The key to get (api-key, model, model-id, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit)
+        /// The key to get (api-key, model, model-id, shell, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit)
         key: String,
     },
     /// Show the config file path
     Path,
     /// Clear a configuration value
     Clear {
-        /// The key to clear (api-key, model, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit)
+        /// The key to clear (api-key, model, shell, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit)
         key: String,
     },
     /// List all model presets and their current models
@@ -196,8 +202,18 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                         format!("Script timeout set to: {} seconds", timeout).green()
                     );
                 }
+                "shell" => {
+                    // Validate the shell value
+                    let shell: Shell = value.parse().map_err(|e: String| anyhow::anyhow!(e))?;
+                    config.set_shell(shell.to_string());
+                    config.save()?;
+                    println!(
+                        "{}",
+                        format!("Shell set to: {}", shell.display_name()).green()
+                    );
+                }
                 _ => bail!(
-                    "Unknown config key: {}. Available keys: api-key, model, model-id, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit, script-timeout",
+                    "Unknown config key: {}. Available keys: api-key, model, model-id, shell, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit, script-timeout",
                     key
                 ),
             }
@@ -299,8 +315,23 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                         );
                     }
                 }
+                "shell" => {
+                    if let Some(shell) = config.get_shell() {
+                        println!("shell: {}", shell);
+                    } else {
+                        let detected = Shell::detect();
+                        println!(
+                            "{}",
+                            format!(
+                                "shell: not set (auto-detected: {})",
+                                detected.display_name()
+                            )
+                            .dimmed()
+                        );
+                    }
+                }
                 _ => bail!(
-                    "Unknown config key: {}. Available keys: api-key, model, model-id, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit, script-timeout",
+                    "Unknown config key: {}. Available keys: api-key, model, model-id, shell, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit, script-timeout",
                     key
                 ),
             }
@@ -397,8 +428,16 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                         .green()
                     );
                 }
+                "shell" => {
+                    config.clear_shell();
+                    config.save()?;
+                    println!(
+                        "{}",
+                        "Shell cleared. Using auto-detection.".green()
+                    );
+                }
                 _ => bail!(
-                    "Unknown config key: {}. Available keys: api-key, model, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit, script-timeout",
+                    "Unknown config key: {}. Available keys: api-key, model, shell, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit, script-timeout",
                     key
                 ),
             }
@@ -465,6 +504,9 @@ async fn run_prompt(cli: Cli) -> Result<()> {
     // Resolve model: CLI flag > config file > default
     let model_id = resolve_model(cli.model_id, cli.model)?;
 
+    // Resolve shell: CLI flag > config file > auto-detect
+    let shell = resolve_shell(cli.shell)?;
+
     // Load config for limits
     let config = Config::load()?;
 
@@ -488,19 +530,28 @@ async fn run_prompt(cli: Cli) -> Result<()> {
         );
     }
 
-    println!("{}", "ru.sh - Natural Language to Bash".bold());
-    println!("{}", format!("Using model: {}", model_id).dimmed());
+    println!("{}", "ru.sh - Natural Language to Shell Scripts".bold());
+    println!(
+        "{}",
+        format!(
+            "Using model: {} | Shell: {}",
+            model_id,
+            shell.display_name()
+        )
+        .dimmed()
+    );
     println!();
 
     let start = Instant::now();
-    let generated_script = api::generate_script(&prompt, &api_key, &model_id).await?;
+    let generated_script =
+        api::generate_script(&prompt, &api_key, &model_id, &shell).await?;
     let api_duration_ms = start.elapsed().as_millis() as u64;
 
     // Compute script hash for integrity verification (TOCTOU defense)
     let script_hash = compute_script_hash(&generated_script);
 
     // Analyze script for safety
-    let report = safety::analyze_script(&generated_script);
+    let report = safety::analyze_script(&generated_script, &shell);
 
     // Display script with safety information
     display_script_with_safety(&generated_script, &report);
@@ -566,7 +617,8 @@ async fn run_prompt(cli: Cli) -> Result<()> {
         }
 
         let timeout_secs = config.get_script_timeout();
-        let exit_code = execute_script(&generated_script, Some(&script_hash), timeout_secs).await?;
+        let exit_code =
+            execute_script(&generated_script, Some(&script_hash), timeout_secs, &shell).await?;
         log_execution(
             &prompt,
             &generated_script,
@@ -597,8 +649,14 @@ async fn run_prompt(cli: Cli) -> Result<()> {
 
     // For high/critical risk, require explicit confirmation
     if report.requires_force() {
-        let exit_code =
-            prompt_high_risk_execution(&generated_script, &report, &api_key, &script_hash).await?;
+        let exit_code = prompt_high_risk_execution(
+            &generated_script,
+            &report,
+            &api_key,
+            &script_hash,
+            &shell,
+        )
+        .await?;
         log_execution(
             &prompt,
             &generated_script,
@@ -608,9 +666,15 @@ async fn run_prompt(cli: Cli) -> Result<()> {
             Some(api_duration_ms),
         );
     } else {
-        let exit_code =
-            prompt_normal_execution(&generated_script, &report, &prompt, &api_key, &script_hash)
-                .await?;
+        let exit_code = prompt_normal_execution(
+            &generated_script,
+            &report,
+            &prompt,
+            &api_key,
+            &script_hash,
+            &shell,
+        )
+        .await?;
         log_execution(
             &prompt,
             &generated_script,
@@ -690,6 +754,7 @@ async fn prompt_high_risk_execution(
     report: &SafetyReport,
     api_key: &str,
     script_hash: &str,
+    shell: &Shell,
 ) -> Result<Option<i32>> {
     println!(
         "{}",
@@ -720,8 +785,13 @@ async fn prompt_high_risk_execution(
 
             if input.trim().to_lowercase() == "yes" {
                 let config = Config::load()?;
-                let exit_code =
-                    execute_script(script, Some(script_hash), config.get_script_timeout()).await?;
+                let exit_code = execute_script(
+                    script,
+                    Some(script_hash),
+                    config.get_script_timeout(),
+                    shell,
+                )
+                .await?;
                 Ok(exit_code)
             } else {
                 println!("{}", "Cancelled - confirmation not received.".red());
@@ -729,13 +799,14 @@ async fn prompt_high_risk_execution(
             }
         }
         1 => {
-            explain_script_only(script, api_key).await?;
+            explain_script_only(script, api_key, shell).await?;
             // After explaining, ask again
             Box::pin(prompt_high_risk_execution(
                 script,
                 report,
                 api_key,
                 script_hash,
+                shell,
             ))
             .await
         }
@@ -754,6 +825,7 @@ async fn prompt_normal_execution(
     _prompt: &str,
     api_key: &str,
     script_hash: &str,
+    shell: &Shell,
 ) -> Result<Option<i32>> {
     let options = vec!["Execute", "Explain", "Cancel"];
     let selection = Select::new()
@@ -765,9 +837,9 @@ async fn prompt_normal_execution(
     match selection {
         0 => {
             let config = Config::load()?;
-            execute_script(script, Some(script_hash), config.get_script_timeout()).await
+            execute_script(script, Some(script_hash), config.get_script_timeout(), shell).await
         }
-        1 => explain_and_prompt(script, api_key, script_hash).await,
+        1 => explain_and_prompt(script, api_key, script_hash, shell).await,
         2 => {
             println!("{}", "Cancelled.".red());
             Ok(None)
@@ -777,7 +849,7 @@ async fn prompt_normal_execution(
 }
 
 /// Explain script without follow-up prompt
-async fn explain_script_only(script: &str, api_key: &str) -> Result<()> {
+async fn explain_script_only(script: &str, api_key: &str, shell: &Shell) -> Result<()> {
     let config = Config::load()?;
     let explainer_model = config.get_explainer_model();
 
@@ -787,7 +859,7 @@ async fn explain_script_only(script: &str, api_key: &str) -> Result<()> {
     );
     println!();
 
-    let explanation = api::explain_script(script, api_key, explainer_model).await?;
+    let explanation = api::explain_script(script, api_key, explainer_model, shell).await?;
 
     println!("{}", "Explanation:".cyan().bold());
     println!("{}", "-".repeat(40).dimmed());
@@ -857,6 +929,27 @@ fn determine_api_key(
     cli_key.or(env_key.filter(|k| !k.is_empty())).or(config_key)
 }
 
+/// Resolve shell from: CLI flag > config file > auto-detect
+fn resolve_shell(cli_shell: Option<String>) -> Result<Shell> {
+    // CLI flag takes highest priority
+    if let Some(shell_str) = cli_shell {
+        return shell_str
+            .parse::<Shell>()
+            .map_err(|e| anyhow::anyhow!(e));
+    }
+
+    // Config file takes next priority
+    let config = Config::load()?;
+    if let Some(shell_str) = config.get_shell() {
+        return shell_str
+            .parse::<Shell>()
+            .map_err(|e| anyhow::anyhow!(e));
+    }
+
+    // Fall back to auto-detection
+    Ok(Shell::detect())
+}
+
 /// Resolve model from: CLI model-id > CLI preset > config
 fn resolve_model(cli_model_id: Option<String>, cli_preset: Option<String>) -> Result<String> {
     // CLI model-id takes highest priority
@@ -878,7 +971,12 @@ fn resolve_model(cli_model_id: Option<String>, cli_preset: Option<String>) -> Re
     Ok(config.get_model_id().to_string())
 }
 
-async fn explain_and_prompt(script: &str, api_key: &str, script_hash: &str) -> Result<Option<i32>> {
+async fn explain_and_prompt(
+    script: &str,
+    api_key: &str,
+    script_hash: &str,
+    shell: &Shell,
+) -> Result<Option<i32>> {
     let config = Config::load()?;
     let explainer_model = config.get_explainer_model();
 
@@ -888,7 +986,7 @@ async fn explain_and_prompt(script: &str, api_key: &str, script_hash: &str) -> R
     );
     println!();
 
-    let explanation = api::explain_script(script, api_key, explainer_model).await?;
+    let explanation = api::explain_script(script, api_key, explainer_model, shell).await?;
 
     println!("{}", "Explanation:".cyan().bold());
     println!("{}", "-".repeat(40).dimmed());
@@ -905,7 +1003,7 @@ async fn explain_and_prompt(script: &str, api_key: &str, script_hash: &str) -> R
         .interact()?;
 
     match selection {
-        0 => execute_script(script, Some(script_hash), config.get_script_timeout()).await,
+        0 => execute_script(script, Some(script_hash), config.get_script_timeout(), shell).await,
         1 => {
             println!("{}", "Cancelled.".red());
             Ok(None)
@@ -925,6 +1023,7 @@ async fn execute_script(
     script: &str,
     expected_hash: Option<&str>,
     timeout_secs: u64,
+    shell: &Shell,
 ) -> Result<Option<i32>> {
     use tokio::process::Command as TokioCommand;
     use tokio::time::{Duration, timeout};
@@ -942,13 +1041,17 @@ async fn execute_script(
     let timeout_duration = Duration::from_secs(timeout_secs);
     let start = Instant::now();
 
-    let child = TokioCommand::new("bash")
-        .arg("-c")
-        .arg(script)
+    let mut cmd = TokioCommand::new(shell.binary());
+    for arg in shell.exec_args() {
+        cmd.arg(arg);
+    }
+    cmd.arg(script);
+
+    let child = cmd
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .context("Failed to spawn bash process")?;
+        .with_context(|| format!("Failed to spawn {} process", shell.display_name()))?;
 
     let result = timeout(timeout_duration, child.wait_with_output()).await;
 
@@ -1080,6 +1183,7 @@ mod tests {
             "echo 'hello world'",
             None,
             config::DEFAULT_SCRIPT_TIMEOUT_SECS,
+            &Shell::Bash,
         )
         .await;
         assert!(result.is_ok());
@@ -1089,7 +1193,9 @@ mod tests {
     #[tokio::test]
     async fn test_execute_script_failure() {
         // We use a command that is guaranteed to fail
-        let result = execute_script("exit 1", None, config::DEFAULT_SCRIPT_TIMEOUT_SECS).await;
+        let result =
+            execute_script("exit 1", None, config::DEFAULT_SCRIPT_TIMEOUT_SECS, &Shell::Bash)
+                .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Some(1));
     }
@@ -1097,7 +1203,7 @@ mod tests {
     #[tokio::test]
     async fn test_execute_script_timeout() {
         // Use a very short timeout to test the timeout functionality
-        let result = execute_script("sleep 5", None, 1).await;
+        let result = execute_script("sleep 5", None, 1, &Shell::Bash).await;
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(
@@ -1105,6 +1211,28 @@ mod tests {
             "Error should mention timeout: {}",
             err_msg
         );
+    }
+
+    #[test]
+    fn test_resolve_shell_cli_flag() {
+        let result = resolve_shell(Some("bash".to_string()));
+        assert_eq!(result.unwrap(), Shell::Bash);
+
+        let result = resolve_shell(Some("powershell".to_string()));
+        assert_eq!(result.unwrap(), Shell::PowerShell);
+    }
+
+    #[test]
+    fn test_resolve_shell_invalid() {
+        let result = resolve_shell(Some("invalid_shell".to_string()));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_resolve_shell_auto_detect() {
+        // When no CLI flag, should auto-detect without error
+        let result = resolve_shell(None);
+        assert!(result.is_ok());
     }
 
     #[test]

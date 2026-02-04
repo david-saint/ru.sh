@@ -129,10 +129,13 @@ fn HeroSection() -> impl IntoView {
                 </p>
 
                 <div class="flex flex-col sm:flex-row gap-4 pt-4 animate-fade-in-up delay-400">
-                    <button class="h-12 px-8 bg-white text-black font-medium hover:bg-amber-500 transition-all duration-300 rounded-sm flex items-center justify-center gap-2 magnetic-btn group">
+                    <a
+                        href="#install"
+                        class="h-12 px-8 bg-white text-black font-medium hover:bg-amber-500 transition-all duration-300 rounded-sm flex items-center justify-center gap-2 magnetic-btn group"
+                    >
                         <span>"Install CLI"</span>
                         <ChevronRightIcon size=16 class="group-hover:translate-x-1 transition-transform duration-300" />
-                    </button>
+                    </a>
                     <a
                         href="https://github.com/david-saint/ru.sh"
                         target="_blank"
@@ -167,7 +170,7 @@ fn TerminalSimulation() -> impl IntoView {
 
     // Scenario data
     let scenario = vec![
-        ("input", "rush -p \"archive all jpgs in current dir\"", 0),
+        ("input", "ru -p \"archive all jpgs in current dir\"", 0),
         ("wait", "", 800),
         ("processing", "Generating command...", 0),
         ("wait", "", 600),
@@ -432,7 +435,7 @@ fn HowItWorks() -> impl IntoView {
                             <h4 class="text-white font-bold mb-2">"Trigger"</h4>
                             <p class="text-gray-400 text-sm">
                                 "Use the global alias "
-                                <code class="text-amber-500 bg-amber-500/10 px-1 rounded">"rush"</code>
+                                <code class="text-amber-500 bg-amber-500/10 px-1 rounded">"ru"</code>
                                 " or map it to a hotkey. No context switching required."
                             </p>
                         </div>
@@ -508,13 +511,20 @@ fn HowItWorks() -> impl IntoView {
 #[component]
 fn InstallationBar() -> impl IntoView {
     let (copied, set_copied) = signal(false);
-    let command = "curl -sL https://ru.sh/install | bash";
+    // 0 = macOS/Linux, 1 = Windows
+    let (platform, set_platform) = signal(0u8);
+
+    let command = move || match platform.get() {
+        0 => "curl -sL https://ru-sh.dev/install | bash",
+        _ => "irm https://ru-sh.dev/install.ps1 | iex",
+    };
 
     let handle_copy = move |_| {
+        let cmd = command();
         let window = web_sys::window().expect("window should exist");
         let navigator = window.navigator();
         let clipboard = navigator.clipboard();
-        let _ = clipboard.write_text(command);
+        let _ = clipboard.write_text(cmd);
 
         set_copied.set(true);
 
@@ -535,25 +545,54 @@ fn InstallationBar() -> impl IntoView {
     };
 
     view! {
-        <section class="w-full bg-white text-black py-20 px-6 scroll-reveal-scale">
-            <div class="max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-between gap-8">
-                <div class="scroll-reveal-left">
+        <section id="install" class="w-full bg-white text-black py-20 px-6 scroll-reveal-scale">
+            <div class="max-w-4xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8">
+                <div class="text-center md:text-left scroll-reveal-left">
                     <h2 class="text-3xl font-bold mb-2 tracking-tight">
-                        "Ready to streamline?"
+                        "Ready to ru.sh?"
                     </h2>
                     <p class="text-black/60">
                         "Open source. Privacy focused. Free for personal use."
                     </p>
                 </div>
 
-                <div class="relative group scroll-reveal-right">
-                    <div class="flex items-center gap-4 bg-black/5 border border-black/10 rounded-sm p-2 pl-4 pr-2 hover:border-black/30 transition-all duration-300 w-full md:w-auto magnetic-btn">
-                        <span class="font-mono text-sm md:text-base font-medium">
+                <div class="flex flex-col items-center gap-4 scroll-reveal-right w-full max-w-lg">
+                    // Platform toggle
+                    <div class="flex items-center rounded-sm border border-black/10 overflow-hidden font-mono text-sm">
+                        <button
+                            on:click=move |_| { set_platform.set(0); set_copied.set(false); }
+                            class=move || {
+                                if platform.get() == 0 {
+                                    "px-4 py-2 bg-black text-white font-medium transition-all duration-300"
+                                } else {
+                                    "px-4 py-2 bg-transparent text-black/60 hover:text-black hover:bg-black/5 transition-all duration-300"
+                                }
+                            }
+                        >
+                            "macOS / Linux"
+                        </button>
+                        <button
+                            on:click=move |_| { set_platform.set(1); set_copied.set(false); }
+                            class=move || {
+                                if platform.get() == 1 {
+                                    "px-4 py-2 bg-black text-white font-medium transition-all duration-300"
+                                } else {
+                                    "px-4 py-2 bg-transparent text-black/60 hover:text-black hover:bg-black/5 transition-all duration-300"
+                                }
+                            }
+                        >
+                            "Windows"
+                        </button>
+                    </div>
+
+                    // Install command
+                    <div class="flex items-center gap-4 bg-black/5 border border-black/10 rounded-sm p-2 pl-4 pr-2 hover:border-black/30 transition-all duration-300 w-full magnetic-btn">
+                        <span class="font-mono text-sm md:text-base font-medium truncate">
                             {command}
                         </span>
                         <button
                             on:click=handle_copy
-                            class="p-2 bg-black text-white hover:bg-amber-500 transition-all duration-300 rounded-sm ml-4 magnetic-btn"
+                            class="flex-shrink-0 p-2 bg-black text-white hover:bg-amber-500 transition-all duration-300 rounded-sm ml-auto magnetic-btn"
                         >
                             {move || {
                                 let is_copied = copied.get();
@@ -565,6 +604,14 @@ fn InstallationBar() -> impl IntoView {
                             }}
                         </button>
                     </div>
+
+                    // Shell hint
+                    <p class="text-black/40 text-xs font-mono">
+                        {move || match platform.get() {
+                            0 => "Run in your terminal (bash, zsh, or sh)",
+                            _ => "Run in PowerShell as Administrator",
+                        }}
+                    </p>
                 </div>
             </div>
         </section>

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Convert natural language to bash scripts with AI"
+description = "Convert natural language to shell scripts with AI"
 
 [[bin]]
 name = "ru"
