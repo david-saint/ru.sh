@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 
 use crate::config::Config;
@@ -74,8 +75,26 @@ impl UsageStats {
 
         let contents = toml::to_string_pretty(self).context("Failed to serialize usage stats")?;
 
-        fs::write(&path, contents)
-            .with_context(|| format!("Failed to write usage file: {}", path.display()))?;
+        // Write with restricted permissions (0600 on Unix)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&path)
+                .with_context(|| format!("Failed to open usage file: {}", path.display()))?
+                .write_all(contents.as_bytes())
+                .with_context(|| format!("Failed to write usage file: {}", path.display()))?;
+        }
+
+        #[cfg(not(unix))]
+        {
+            fs::write(&path, contents)
+                .with_context(|| format!("Failed to write usage file: {}", path.display()))?;
+        }
 
         Ok(())
     }

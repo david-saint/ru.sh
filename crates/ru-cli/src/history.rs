@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -14,12 +15,37 @@ const MAX_HISTORY_SIZE: u64 = 10 * 1024 * 1024;
 /// Number of recent entries to keep when rotating
 const ENTRIES_TO_KEEP: usize = 1000;
 
+/// Maximum length for script preview
+const PREVIEW_MAX_LEN: usize = 50;
+
+/// Compute SHA-256 hash of a string
+fn hash_string(s: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(s.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+/// Truncate a string to a maximum length with ellipsis
+fn truncate_preview(s: &str, max_len: usize) -> String {
+    // Handle multi-line scripts by taking first line
+    let first_line = s.lines().next().unwrap_or(s);
+    if first_line.len() <= max_len {
+        first_line.to_string()
+    } else {
+        format!("{}...", &first_line[..max_len])
+    }
+}
+
 /// A record of a script execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionRecord {
     pub timestamp: DateTime<Utc>,
-    pub prompt: String,
-    pub script: String,
+    /// SHA-256 hash of the prompt (for privacy)
+    pub prompt_hash: String,
+    /// SHA-256 hash of the script (for privacy)
+    pub script_hash: String,
+    /// Truncated preview of the script for reference
+    pub script_preview: String,
     pub risk_level: String,
     pub executed: bool,
     pub exit_code: Option<i32>,
@@ -39,8 +65,9 @@ impl ExecutionRecord {
     ) -> Self {
         Self {
             timestamp: Utc::now(),
-            prompt: prompt.to_string(),
-            script: script.to_string(),
+            prompt_hash: hash_string(prompt),
+            script_hash: hash_string(script),
+            script_preview: truncate_preview(script, PREVIEW_MAX_LEN),
             risk_level: risk_level.to_string(),
             executed,
             exit_code,
@@ -154,8 +181,10 @@ mod tests {
     #[test]
     fn test_execution_record_new() {
         let record = create_test_record();
-        assert_eq!(record.prompt, "list files");
-        assert_eq!(record.script, "ls -la");
+        // Should store hashes, not plaintext
+        assert_eq!(record.prompt_hash, hash_string("list files"));
+        assert_eq!(record.script_hash, hash_string("ls -la"));
+        assert_eq!(record.script_preview, "ls -la"); // Short enough, no truncation
         assert_eq!(record.risk_level, "Safe");
         assert!(record.executed);
         assert_eq!(record.exit_code, Some(0));
@@ -165,17 +194,27 @@ mod tests {
     fn test_execution_record_serialize() {
         let record = create_test_record();
         let json = serde_json::to_string(&record).unwrap();
-        assert!(json.contains("\"prompt\":\"list files\""));
-        assert!(json.contains("\"script\":\"ls -la\""));
+        // Should contain hashes, not plaintext
+        assert!(json.contains("\"prompt_hash\":"));
+        assert!(json.contains("\"script_hash\":"));
+        assert!(json.contains("\"script_preview\":\"ls -la\""));
         assert!(json.contains("\"risk_level\":\"Safe\""));
+        // Should NOT contain plaintext prompt or full script
+        assert!(!json.contains("\"prompt\":"));
+        assert!(!json.contains("\"script\":\""));
     }
 
     #[test]
     fn test_execution_record_deserialize() {
-        let json = r#"{"timestamp":"2024-01-15T10:30:00Z","prompt":"test","script":"echo test","risk_level":"Low","executed":true,"exit_code":0}"#;
-        let record: ExecutionRecord = serde_json::from_str(json).unwrap();
-        assert_eq!(record.prompt, "test");
-        assert_eq!(record.script, "echo test");
+        let prompt_hash = hash_string("test");
+        let script_hash = hash_string("echo test");
+        let json = format!(
+            r#"{{"timestamp":"2024-01-15T10:30:00Z","prompt_hash":"{}","script_hash":"{}","script_preview":"echo test","risk_level":"Low","executed":true,"exit_code":0}}"#,
+            prompt_hash, script_hash
+        );
+        let record: ExecutionRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(record.prompt_hash, prompt_hash);
+        assert_eq!(record.script_hash, script_hash);
         assert!(record.executed);
     }
 
@@ -191,12 +230,45 @@ mod tests {
         let mut file = File::create(&history_file)?;
         writeln!(file, "{}", json)?;
 
-        // Verify
+        // Verify - should contain preview, not full sensitive data
         let content = fs::read_to_string(&history_file)?;
-        assert!(content.contains("list files"));
-        assert!(content.contains("ls -la"));
+        assert!(content.contains("prompt_hash"));
+        assert!(content.contains("script_preview"));
+        // Should NOT contain plaintext prompt
+        assert!(!content.contains("\"prompt\":\"list files\""));
 
         Ok(())
+    }
+
+    #[test]
+    fn test_truncate_preview() {
+        // Short script - no truncation
+        assert_eq!(truncate_preview("ls -la", 50), "ls -la");
+
+        // Long script - truncated with ellipsis
+        let long_script = "echo 'this is a very long command that should be truncated'";
+        let preview = truncate_preview(long_script, 20);
+        assert_eq!(preview, "echo 'this is a very...");
+
+        // Multi-line script - takes first line only
+        let multiline = "echo hello\necho world\necho test";
+        assert_eq!(truncate_preview(multiline, 50), "echo hello");
+    }
+
+    #[test]
+    fn test_hash_string() {
+        // Same input should produce same hash
+        let hash1 = hash_string("test");
+        let hash2 = hash_string("test");
+        assert_eq!(hash1, hash2);
+
+        // Different input should produce different hash
+        let hash3 = hash_string("different");
+        assert_ne!(hash1, hash3);
+
+        // Hash should be 64 hex characters (SHA-256)
+        assert_eq!(hash1.len(), 64);
+        assert!(hash1.chars().all(|c| c.is_ascii_hexdigit()));
     }
 
     #[test]
@@ -228,10 +300,11 @@ mod tests {
         let line_count = content.lines().count();
         assert_eq!(line_count, ENTRIES_TO_KEEP);
 
-        // Verify we kept the most recent entries
-        assert!(content.contains("prompt 1499"));
-        assert!(content.contains("prompt 500"));
-        assert!(!content.contains("prompt 0\","));
+        // Verify we kept the most recent entries by checking script_preview
+        // (since prompts are now hashed, we check the preview which shows "echo N")
+        assert!(content.contains("echo 1499"));
+        assert!(content.contains("echo 500"));
+        assert!(!content.contains("\"script_preview\":\"echo 0\""));
 
         Ok(())
     }
