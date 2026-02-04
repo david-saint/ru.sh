@@ -117,6 +117,16 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                     config.save()?;
                     println!("{}", "API key saved successfully.".green());
                 }
+                "explain-verbosity" | "explain_verbosity" => {
+                    let verbosity: ExplainVerbosity =
+                        value.parse().map_err(|e: String| anyhow::anyhow!(e))?;
+                    config.set_explain_verbosity(verbosity.clone());
+                    config.save()?;
+                    println!(
+                        "{}",
+                        format!("Explain verbosity set to: {}", verbosity).green()
+                    );
+                }
                 "model" => {
                     let preset: ModelPreset =
                         value.parse().map_err(|e: String| anyhow::anyhow!(e))?;
@@ -213,7 +223,7 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                     );
                 }
                 _ => bail!(
-                    "Unknown config key: {}. Available keys: api-key, model, model-id, shell, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit, script-timeout",
+                    "Unknown config key: {}. Available keys: api-key, explain-verbosity, model, model-id, shell, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit, script-timeout",
                     key
                 ),
             }
@@ -330,8 +340,22 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                         );
                     }
                 }
+                "explain-verbosity" | "explain_verbosity" => {
+                    if config.explain_verbosity.is_some() {
+                        println!("explain-verbosity: {}", config.get_explain_verbosity());
+                    } else {
+                        println!(
+                            "{}",
+                            format!(
+                                "explain-verbosity: {} (default)",
+                                config.get_explain_verbosity()
+                            )
+                            .dimmed()
+                        );
+                    }
+                }
                 _ => bail!(
-                    "Unknown config key: {}. Available keys: api-key, model, model-id, shell, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit, script-timeout",
+                    "Unknown config key: {}. Available keys: api-key, explain-verbosity, model, model-id, shell, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit, script-timeout",
                     key
                 ),
             }
@@ -400,6 +424,14 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                         format!("Explainer model cleared. Using default: {}", default).green()
                     );
                 }
+                "explain-verbosity" | "explain_verbosity" => {
+                    config.clear_explain_verbosity();
+                    config.save()?;
+                    println!(
+                        "{}",
+                        "Explain verbosity cleared. Using default: concise.".green()
+                    );
+                }
                 "daily-limit" | "daily_limit" => {
                     config.clear_daily_limit();
                     config.save()?;
@@ -434,7 +466,7 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                     println!("{}", "Shell cleared. Using auto-detection.".green());
                 }
                 _ => bail!(
-                    "Unknown config key: {}. Available keys: api-key, model, shell, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit, script-timeout",
+                    "Unknown config key: {}. Available keys: api-key, explain-verbosity, model, shell, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit, script-timeout",
                     key
                 ),
             }
@@ -469,12 +501,23 @@ fn handle_config(action: ConfigAction) -> Result<()> {
             let default_explainer = config::DEFAULT_MODEL_EXPLAINER;
             if config.explainer_model.is_some() {
                 println!(
-                    "model.explainer: {} (default: {})",
+                    "  model: {} (default: {})",
                     config.get_explainer_model(),
                     default_explainer
                 );
             } else {
-                println!("model.explainer: {} (default)", default_explainer);
+                println!("  model: {} (default)", default_explainer);
+            }
+            let verbosity = config.get_explain_verbosity();
+            let is_default = config.explain_verbosity.is_none();
+            if is_default {
+                println!(
+                    "  verbosity: {} {}",
+                    verbosity.to_string().cyan(),
+                    "(default)".dimmed()
+                );
+            } else {
+                println!("  verbosity: {}", verbosity.to_string().cyan());
             }
         }
     }
@@ -868,14 +911,16 @@ async fn prompt_normal_execution(
 async fn explain_script_only(script: &str, api_key: &str, shell: &Shell) -> Result<()> {
     let config = Config::load()?;
     let explainer_model = config.get_explainer_model();
+    let verbosity = config.get_explain_verbosity();
 
     println!(
         "{}",
-        format!("Explaining with: {}", explainer_model).dimmed()
+        format!("Explaining with: {} ({})", explainer_model, verbosity).dimmed()
     );
     println!();
 
-    let explanation = api::explain_script(script, api_key, explainer_model, shell).await?;
+    let explanation =
+        api::explain_script(script, api_key, explainer_model, shell, &verbosity).await?;
 
     println!("{}", "Explanation:".cyan().bold());
     println!("{}", "-".repeat(40).dimmed());
@@ -991,14 +1036,16 @@ async fn explain_and_prompt(
 ) -> Result<Option<i32>> {
     let config = Config::load()?;
     let explainer_model = config.get_explainer_model();
+    let verbosity = config.get_explain_verbosity();
 
     println!(
         "{}",
-        format!("Explaining with: {}", explainer_model).dimmed()
+        format!("Explaining with: {} ({})", explainer_model, verbosity).dimmed()
     );
     println!();
 
-    let explanation = api::explain_script(script, api_key, explainer_model, shell).await?;
+    let explanation =
+        api::explain_script(script, api_key, explainer_model, shell, &verbosity).await?;
 
     println!("{}", "Explanation:".cyan().bold());
     println!("{}", "-".repeat(40).dimmed());

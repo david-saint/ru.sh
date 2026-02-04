@@ -1,3 +1,4 @@
+use crate::config::ExplainVerbosity;
 use crate::shell::Shell;
 use anyhow::{Context, Result, bail};
 use reqwest::StatusCode;
@@ -113,21 +114,31 @@ fn build_system_prompt(shell: &Shell) -> String {
     )
 }
 
-/// Build the explainer system prompt, customized per shell
-fn build_explainer_prompt(shell: &Shell) -> String {
-    format!(
-        "You are an expert at explaining {} scripts and commands. Given a {} script, explain what it does in clear, simple terms.\n\n\
-         Guidelines:\n\
-         1. Break down the command/script into logical steps\n\
-         2. Explain what each part does\n\
-         3. Highlight any potential risks or side effects\n\
-         4. Keep the explanation concise but thorough\n\
-         5. Use plain language that a non-expert can understand",
-        shell.display_name(),
-        shell.display_name()
-    )
+/// Build the explainer system prompt, customized per shell and verbosity
+fn build_explainer_prompt(shell: &Shell, verbosity: &ExplainVerbosity) -> String {
+    let shell_name = shell.display_name();
+    match verbosity {
+        ExplainVerbosity::Concise => format!(
+            "You are an expert at explaining {shell_name} scripts and commands.\n\n\
+             Guidelines:\n\
+             1. Summarize what the script does in 2-3 sentences\n\
+             2. Mention any potential risks or side effects in one sentence if relevant\n\
+             3. Use plain text only - no markdown, no headers, no code blocks\n\
+             4. Use plain language that a non-expert can understand"
+        ),
+        ExplainVerbosity::Verbose => format!(
+            "You are an expert at explaining {shell_name} scripts and commands. Given a {shell_name} script, explain what it does in clear, simple terms.\n\n\
+             Guidelines:\n\
+             1. Break down the command/script into logical steps\n\
+             2. Explain what each part does\n\
+             3. Highlight any potential risks or side effects\n\
+             4. Keep the explanation concise but thorough\n\
+             5. Use plain language that a non-expert can understand\n\
+             6. Use plain text only - no markdown, no headers, no code blocks\n\
+             7. Use dashes (-) for lists instead of bullet points or numbers"
+        ),
+    }
 }
-
 /// Shared HTTP client with timeout configuration
 static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
     reqwest::Client::builder()
@@ -367,6 +378,7 @@ pub async fn explain_script(
     api_key: &str,
     model_id: &str,
     shell: &Shell,
+    verbosity: &ExplainVerbosity,
 ) -> Result<String> {
     let lang_tag = match shell {
         Shell::Bash => "bash",
@@ -376,12 +388,16 @@ pub async fn explain_script(
         Shell::PowerShell => "powershell",
         Shell::Cmd => "batch",
     };
+    let max_tokens = match verbosity {
+        ExplainVerbosity::Concise => 256,
+        ExplainVerbosity::Verbose => 1024,
+    };
     let request = ChatRequest {
         model: model_id.to_string(),
         messages: vec![
             ChatMessage {
                 role: "system",
-                content: build_explainer_prompt(shell),
+                content: build_explainer_prompt(shell, verbosity),
             },
             ChatMessage {
                 role: "user",
@@ -604,8 +620,15 @@ mod tests {
             Shell::PowerShell,
             Shell::Cmd,
         ] {
-            let prompt = build_explainer_prompt(&shell);
-            assert!(prompt.contains(shell.display_name()));
+            let concise = build_explainer_prompt(&shell, &ExplainVerbosity::Concise);
+            assert!(concise.contains(shell.display_name()));
+            assert!(concise.contains("2-3 sentences"));
+            assert!(concise.contains("no markdown"));
+
+            let verbose = build_explainer_prompt(&shell, &ExplainVerbosity::Verbose);
+            assert!(verbose.contains(shell.display_name()));
+            assert!(verbose.contains("Break down"));
+            assert!(verbose.contains("no markdown"));
         }
     }
 }

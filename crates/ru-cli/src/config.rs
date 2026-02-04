@@ -11,7 +11,7 @@ pub const DEFAULT_MODEL_STANDARD: &str = "google/gemini-3-flash-preview:nitro";
 /// Default model for Quality preset
 pub const DEFAULT_MODEL_QUALITY: &str = "anthropic/claude-opus-4.5:nitro";
 /// Default model for Explainer
-pub const DEFAULT_MODEL_EXPLAINER: &str = "openai/gpt-4o-mini:nitro";
+pub const DEFAULT_MODEL_EXPLAINER: &str = "nvidia/nemotron-3-nano-30b-a3b:nitro";
 /// Default script execution timeout in seconds (5 minutes)
 pub const DEFAULT_SCRIPT_TIMEOUT_SECS: u64 = 300;
 
@@ -67,6 +67,41 @@ pub struct PresetModels {
     pub quality: Option<String>,
 }
 
+/// Verbosity level for script explanations
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExplainVerbosity {
+    /// Concise 2-3 sentence summary
+    #[default]
+    Concise,
+    /// Detailed step-by-step explanation
+    Verbose,
+}
+
+impl std::fmt::Display for ExplainVerbosity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExplainVerbosity::Concise => write!(f, "concise"),
+            ExplainVerbosity::Verbose => write!(f, "verbose"),
+        }
+    }
+}
+
+impl FromStr for ExplainVerbosity {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "concise" | "summary" => Ok(ExplainVerbosity::Concise),
+            "verbose" | "detailed" => Ok(ExplainVerbosity::Verbose),
+            _ => Err(format!(
+                "Invalid explain verbosity: '{}'. Valid options: concise, verbose",
+                s
+            )),
+        }
+    }
+}
+
 impl PresetModels {
     /// Get custom model for a preset
     pub fn get(&self, preset: &ModelPreset) -> Option<&str> {
@@ -108,6 +143,8 @@ pub struct Config {
     pub preset_models: PresetModels,
     /// Custom model for the explainer feature
     pub explainer_model: Option<String>,
+    /// Verbosity level for script explanations (concise or verbose)
+    pub explain_verbosity: Option<ExplainVerbosity>,
     /// Target shell (bash, zsh, sh, fish, powershell, cmd)
     pub shell: Option<String>,
     /// Daily request limit (warning threshold)
@@ -294,6 +331,22 @@ impl Config {
         self.explainer_model
             .as_deref()
             .unwrap_or(DEFAULT_MODEL_EXPLAINER)
+    }
+
+    /// Get the explain verbosity level
+    /// Returns Concise by default if not set
+    pub fn get_explain_verbosity(&self) -> ExplainVerbosity {
+        self.explain_verbosity.clone().unwrap_or_default()
+    }
+
+    /// Set the explain verbosity level
+    pub fn set_explain_verbosity(&mut self, verbosity: ExplainVerbosity) {
+        self.explain_verbosity = Some(verbosity);
+    }
+
+    /// Clear the explain verbosity (revert to default: concise)
+    pub fn clear_explain_verbosity(&mut self) {
+        self.explain_verbosity = None;
     }
 
     /// Get the daily request limit
