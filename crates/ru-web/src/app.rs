@@ -2,6 +2,8 @@ use leptos::prelude::*;
 use leptos_meta::*;
 use wasm_bindgen::prelude::*;
 
+const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
+
 #[component]
 pub fn App() -> impl IntoView {
     provide_meta_context();
@@ -12,7 +14,7 @@ pub fn App() -> impl IntoView {
         <Meta name="description" content="Transform natural language into executable shell commands. Secure, precise, and minimal."/>
 
         <div class="min-h-screen bg-[#050505] text-gray-300 font-sans selection:bg-amber-500/30 selection:text-amber-200 overflow-x-hidden">
-            // Background Grid Texture
+            // Background Grid Texture with subtle parallax
             <div
                 class="fixed inset-0 pointer-events-none z-0 opacity-[0.015]"
                 style="background-image: linear-gradient(#333 1px, transparent 1px), linear-gradient(90deg, #333 1px, transparent 1px); background-size: 60px 60px;"
@@ -27,6 +29,9 @@ pub fn App() -> impl IntoView {
                 <InstallationBar />
                 <Footer />
             </main>
+
+            // Scroll Animation Observer Script
+            <ScrollAnimationScript />
         </div>
     }
 }
@@ -34,41 +39,41 @@ pub fn App() -> impl IntoView {
 #[component]
 fn Navbar(is_menu_open: ReadSignal<bool>, set_is_menu_open: WriteSignal<bool>) -> impl IntoView {
     view! {
-        <nav class="fixed top-0 w-full z-50 border-b border-white/10 bg-[#050505]/80 backdrop-blur-md">
+        <nav class="fixed top-0 w-full z-50 border-b border-white/10 bg-[#050505]/80 backdrop-blur-md animate-fade-in-down">
             <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-                <div class="flex items-center gap-2 group cursor-pointer">
-                    <div class="w-6 h-6 bg-white text-black flex items-center justify-center font-bold font-mono text-sm rounded-sm group-hover:bg-amber-500 transition-colors">
+                <div class="flex items-center gap-2 group cursor-pointer magnetic-btn">
+                    <div class="w-6 h-6 bg-white text-black flex items-center justify-center font-bold font-mono text-sm rounded-sm group-hover:bg-amber-500 transition-colors duration-300">
                         ">"
                     </div>
-                    <span class="font-mono font-bold text-white tracking-tighter text-lg">
+                    <span class="font-mono font-bold text-white tracking-tighter text-lg link-underline">
                         "ru.sh"
                     </span>
                 </div>
 
                 <div class="hidden md:flex items-center gap-8 font-mono text-sm">
-                    <a href="#features" class="hover:text-white transition-colors">
+                    <a href="#features" class="link-underline hover:text-white transition-colors duration-300">
                         "Features"
                     </a>
-                    <a href="#usage" class="hover:text-white transition-colors">
+                    <a href="#usage" class="link-underline hover:text-white transition-colors duration-300">
                         "Usage"
                     </a>
-                    <a href="#docs" class="hover:text-white transition-colors">
+                    <a href="https://github.com/david-saint/ru.sh" target="_blank" rel="noreferrer" class="link-underline hover:text-white transition-colors duration-300">
                         "Docs"
                     </a>
                     <a
-                        href="https://github.com"
+                        href="https://github.com/david-saint/ru.sh"
                         target="_blank"
                         rel="noreferrer"
-                        class="flex items-center gap-2 text-white/60 hover:text-white transition-colors"
+                        class="flex items-center gap-2 text-white/60 hover:text-white transition-colors duration-300 magnetic-btn"
                     >
                         <GithubIcon size=16 />
-                        <span>"v1.0.4"</span>
+                        <span>{VERSION}</span>
                     </a>
                 </div>
 
                 {/* Mobile Menu Toggle */}
                 <button
-                    class="md:hidden text-white"
+                    class="md:hidden text-white magnetic-btn"
                     on:click=move |_| set_is_menu_open.update(|v| *v = !*v)
                 >
                     {move || {
@@ -84,14 +89,14 @@ fn Navbar(is_menu_open: ReadSignal<bool>, set_is_menu_open: WriteSignal<bool>) -
 
             {/* Mobile Nav */}
             {move || is_menu_open.get().then(|| view! {
-                <div class="md:hidden absolute top-16 left-0 w-full bg-[#050505] border-b border-white/10 p-6 flex flex-col gap-4 font-mono text-sm">
-                    <a href="#features" on:click=move |_| set_is_menu_open.set(false)>
+                <div class="md:hidden absolute top-16 left-0 w-full bg-[#050505] border-b border-white/10 p-6 flex flex-col gap-4 font-mono text-sm animate-fade-in-down">
+                    <a href="#features" on:click=move |_| set_is_menu_open.set(false) class="hover:text-white transition-colors">
                         "Features"
                     </a>
-                    <a href="#usage" on:click=move |_| set_is_menu_open.set(false)>
+                    <a href="#usage" on:click=move |_| set_is_menu_open.set(false) class="hover:text-white transition-colors">
                         "Usage"
                     </a>
-                    <a href="#docs" on:click=move |_| set_is_menu_open.set(false)>
+                    <a href="https://github.com/david-saint/ru.sh" target="_blank" rel="noreferrer" on:click=move |_| set_is_menu_open.set(false) class="hover:text-white transition-colors">
                         "Docs"
                     </a>
                 </div>
@@ -105,39 +110,44 @@ fn HeroSection() -> impl IntoView {
     view! {
         <section class="w-full max-w-7xl px-6 pt-32 pb-20 md:pt-48 md:pb-32 grid md:grid-cols-2 gap-16 items-center">
             <div class="space-y-8">
-                <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-amber-500/20 bg-amber-500/5 text-amber-500 text-xs font-mono tracking-wide uppercase">
+                <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-amber-500/20 bg-amber-500/5 text-amber-500 text-xs font-mono tracking-wide uppercase animate-fade-in-up delay-100">
                     <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
                     "Public Beta Live"
                 </div>
 
-                <h1 class="text-5xl md:text-7xl font-bold text-white tracking-tight leading-[1.1]">
+                <h1 class="text-5xl md:text-7xl font-bold text-white tracking-tight leading-[1.1] animate-fade-in-up delay-200">
                     "Command Line " <br />
                     <span class="text-transparent bg-clip-text bg-gradient-to-r from-gray-400 to-gray-600">
                         "Reimagined."
                     </span>
                 </h1>
 
-                <p class="text-lg md:text-xl text-gray-400 max-w-md leading-relaxed">
+                <p class="text-lg md:text-xl text-gray-400 max-w-md leading-relaxed animate-fade-in-up delay-300">
                     "Stop memorizing "
                     <code class="bg-white/10 px-1 py-0.5 rounded text-gray-200 text-sm">"tar"</code>
                     " flags. Translate natural language into safe, executable shell commands instantly."
                 </p>
 
-                <div class="flex flex-col sm:flex-row gap-4 pt-4">
-                    <button class="h-12 px-8 bg-white text-black font-medium hover:bg-amber-400 transition-colors rounded-sm flex items-center justify-center gap-2">
+                <div class="flex flex-col sm:flex-row gap-4 pt-4 animate-fade-in-up delay-400">
+                    <button class="h-12 px-8 bg-white text-black font-medium hover:bg-amber-500 transition-all duration-300 rounded-sm flex items-center justify-center gap-2 magnetic-btn group">
                         <span>"Install CLI"</span>
-                        <ChevronRightIcon size=16 />
+                        <ChevronRightIcon size=16 class="group-hover:translate-x-1 transition-transform duration-300" />
                     </button>
-                    <button class="h-12 px-8 border border-white/20 text-white font-mono hover:bg-white/5 transition-colors rounded-sm flex items-center justify-center gap-2 group">
+                    <a
+                        href="https://github.com/david-saint/ru.sh"
+                        target="_blank"
+                        rel="noreferrer"
+                        class="h-12 px-8 border border-white/20 text-white font-mono hover:bg-white/5 hover:border-white/40 transition-all duration-300 rounded-sm flex items-center justify-center gap-2 group magnetic-btn"
+                    >
                         <span>"Read the docs"</span>
-                        <span class="opacity-0 -ml-2 group-hover:opacity-100 group-hover:ml-0 transition-all text-amber-500">
+                        <span class="opacity-0 -ml-2 group-hover:opacity-100 group-hover:ml-0 transition-all duration-300 text-amber-500">
                             "→"
                         </span>
-                    </button>
+                    </a>
                 </div>
             </div>
 
-            <div class="relative group">
+            <div class="relative group animate-fade-in-scale delay-500">
                 <div class="absolute -inset-1 bg-gradient-to-r from-amber-500/20 to-blue-500/20 rounded-lg blur opacity-20 group-hover:opacity-40 transition duration-1000"></div>
                 <TerminalSimulation />
             </div>
@@ -264,12 +274,12 @@ fn TerminalSimulation() -> impl IntoView {
     });
 
     view! {
-        <div class="w-full bg-[#0a0a0a] border border-white/10 rounded-md overflow-hidden font-mono text-sm shadow-2xl relative">
+        <div class="w-full bg-[#0a0a0a] border border-white/10 rounded-md overflow-hidden font-mono text-sm shadow-2xl relative card-lift">
             // Window Controls
             <div class="h-8 bg-[#111] border-b border-white/5 flex items-center px-4 gap-2">
-                <div class="w-3 h-3 rounded-full bg-red-500/20 border border-red-500/50"></div>
-                <div class="w-3 h-3 rounded-full bg-yellow-500/20 border border-yellow-500/50"></div>
-                <div class="w-3 h-3 rounded-full bg-green-500/20 border border-green-500/50"></div>
+                <div class="w-3 h-3 rounded-full bg-red-500/20 border border-red-500/50 hover:bg-red-500/40 transition-colors cursor-pointer"></div>
+                <div class="w-3 h-3 rounded-full bg-yellow-500/20 border border-yellow-500/50 hover:bg-yellow-500/40 transition-colors cursor-pointer"></div>
+                <div class="w-3 h-3 rounded-full bg-green-500/20 border border-green-500/50 hover:bg-green-500/40 transition-colors cursor-pointer"></div>
                 <div class="ml-auto text-xs text-white/30 tracking-widest uppercase">"user@local: ~"</div>
             </div>
 
@@ -286,7 +296,7 @@ fn TerminalSimulation() -> impl IntoView {
                             let s = step.get();
                             let cursor = cursor_visible.get();
                             if output.is_none() && s < 2 && cursor {
-                                view! { <span class="bg-gray-500 text-transparent inline-block w-2 h-4 align-middle ml-1">"|"</span> }.into_any()
+                                view! { <span class="bg-gray-500 text-transparent inline-block w-2 h-4 align-middle ml-1 terminal-cursor">"|"</span> }.into_any()
                             } else {
                                 view! { }.into_any()
                             }
@@ -296,7 +306,7 @@ fn TerminalSimulation() -> impl IntoView {
 
                 // Line 2: The Generated Command
                 {move || command_output.get().map(|output| view! {
-                    <div class="mt-2 pl-4 border-l-2 border-amber-500/50 bg-amber-500/5 p-3 rounded-r">
+                    <div class="mt-2 pl-4 border-l-2 border-amber-500/50 bg-amber-500/5 p-3 rounded-r animate-fade-in-up">
                         <div class="text-xs text-amber-500/70 mb-1 uppercase tracking-wider">"Suggested Command"</div>
                         <code class="text-white font-bold">{output}</code>
                     </div>
@@ -304,14 +314,14 @@ fn TerminalSimulation() -> impl IntoView {
 
                 // Line 3: The Prompt
                 {move || show_prompt.get().then(|| view! {
-                    <div class="mt-2">
+                    <div class="mt-2 animate-fade-in-up">
                         <span class="text-gray-400">"Execute this command? [Y/n] "</span>
                         <span class="text-white font-bold">{move || answer.get()}</span>
                         {move || {
                             let s = step.get();
                             let cursor = cursor_visible.get();
                             if s == 8 && cursor {
-                                view! { <span class="bg-gray-500 text-transparent inline-block w-2 h-4 align-middle ml-1">"|"</span> }.into_any()
+                                view! { <span class="bg-gray-500 text-transparent inline-block w-2 h-4 align-middle ml-1 terminal-cursor">"|"</span> }.into_any()
                             } else {
                                 view! { }.into_any()
                             }
@@ -323,7 +333,7 @@ fn TerminalSimulation() -> impl IntoView {
                 {move || {
                     let output = final_output.get();
                     (!output.is_empty()).then(|| view! {
-                        <div class="mt-2 text-gray-500 whitespace-pre-line">
+                        <div class="mt-2 text-gray-500 whitespace-pre-line animate-fade-in-up">
                             {output}
                         </div>
                     })
@@ -334,11 +344,11 @@ fn TerminalSimulation() -> impl IntoView {
                     let output = final_output.get();
                     let s = step.get();
                     (!output.is_empty() && s > 9).then(|| view! {
-                        <div class="mt-4 flex">
+                        <div class="mt-4 flex animate-fade-in-up">
                             <span class="text-green-500 mr-2">"➜"</span>
                             <span class="text-blue-400 mr-2">"~"</span>
                             {move || cursor_visible.get().then(|| view! {
-                                <span class="bg-gray-500 text-transparent inline-block w-2 h-4 align-middle">"|"</span>
+                                <span class="bg-gray-500 text-transparent inline-block w-2 h-4 align-middle terminal-cursor">"|"</span>
                             })}
                         </div>
                     })
@@ -354,39 +364,42 @@ fn FeatureGrid() -> impl IntoView {
         <section id="features" class="w-full max-w-7xl mx-auto px-6 py-24 border-t border-white/5">
             <div class="grid md:grid-cols-3 gap-8">
                 // Feature 1
-                <div class="group p-8 bg-[#0a0a0a] border border-white/5 hover:border-amber-500/30 transition-colors rounded-sm relative overflow-hidden">
-                    <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                        <ZapIcon size=64 />
+                <div class="group p-8 bg-[#0a0a0a] border border-white/5 hover:border-amber-500/30 transition-all duration-500 rounded-sm relative overflow-hidden card-lift scroll-reveal delay-100">
+                    <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity duration-500">
+                        <ZapIcon size=64 class="icon-rotate" />
                     </div>
-                    <ZapIcon size=32 class="text-amber-500 mb-6" />
-                    <h3 class="text-xl font-bold text-white mb-3">
+                    <div class="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                    <ZapIcon size=32 class="text-amber-500 mb-6 relative z-10 icon-rotate" />
+                    <h3 class="text-xl font-bold text-white mb-3 relative z-10">
                         "Instant Translation"
                     </h3>
-                    <p class="text-gray-400 leading-relaxed text-sm">
+                    <p class="text-gray-400 leading-relaxed text-sm relative z-10">
                         "Powered by ultra-low latency models optimized for CLI syntax. Converts messy human thought into precise flags and arguments in milliseconds."
                     </p>
                 </div>
 
                 // Feature 2
-                <div class="group p-8 bg-[#0a0a0a] border border-white/5 hover:border-blue-500/30 transition-colors rounded-sm relative overflow-hidden">
-                    <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                        <ShieldIcon size=64 />
+                <div class="group p-8 bg-[#0a0a0a] border border-white/5 hover:border-blue-500/30 transition-all duration-500 rounded-sm relative overflow-hidden card-lift scroll-reveal delay-200">
+                    <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity duration-500">
+                        <ShieldIcon size=64 class="icon-rotate" />
                     </div>
-                    <ShieldIcon size=32 class="text-blue-500 mb-6" />
-                    <h3 class="text-xl font-bold text-white mb-3">"Human in the Loop"</h3>
-                    <p class="text-gray-400 leading-relaxed text-sm">
+                    <div class="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                    <ShieldIcon size=32 class="text-blue-500 mb-6 relative z-10 icon-rotate" />
+                    <h3 class="text-xl font-bold text-white mb-3 relative z-10">"Human in the Loop"</h3>
+                    <p class="text-gray-400 leading-relaxed text-sm relative z-10">
                         "Ru.sh never executes blindly. You get a chance to review, edit, or reject the generated command. Safety is the default, not an option."
                     </p>
                 </div>
 
                 // Feature 3
-                <div class="group p-8 bg-[#0a0a0a] border border-white/5 hover:border-green-500/30 transition-colors rounded-sm relative overflow-hidden">
-                    <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                        <CpuIcon size=64 />
+                <div class="group p-8 bg-[#0a0a0a] border border-white/5 hover:border-green-500/30 transition-all duration-500 rounded-sm relative overflow-hidden card-lift scroll-reveal delay-300">
+                    <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity duration-500">
+                        <CpuIcon size=64 class="icon-rotate" />
                     </div>
-                    <CpuIcon size=32 class="text-green-500 mb-6" />
-                    <h3 class="text-xl font-bold text-white mb-3">"Context Aware"</h3>
-                    <p class="text-gray-400 leading-relaxed text-sm">
+                    <div class="absolute inset-0 bg-gradient-to-br from-green-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                    <CpuIcon size=32 class="text-green-500 mb-6 relative z-10 icon-rotate" />
+                    <h3 class="text-xl font-bold text-white mb-3 relative z-10">"Context Aware"</h3>
+                    <p class="text-gray-400 leading-relaxed text-sm relative z-10">
                         "Understands your current directory structure, OS version, and installed packages to generate commands that actually run on "
                         <i>"your"</i>
                         " machine."
@@ -401,7 +414,7 @@ fn FeatureGrid() -> impl IntoView {
 fn HowItWorks() -> impl IntoView {
     view! {
         <section id="usage" class="w-full max-w-7xl mx-auto px-6 py-24 flex flex-col items-center border-t border-white/5 bg-neutral-900/20">
-            <div class="text-center max-w-2xl mb-16">
+            <div class="text-center max-w-2xl mb-16 scroll-reveal">
                 <h2 class="text-3xl font-bold text-white mb-4">"Workflow Optimized"</h2>
                 <p class="text-gray-400">
                     "Designed for flow state. Keeps your hands on the keyboard and your browser tabs closed."
@@ -411,22 +424,22 @@ fn HowItWorks() -> impl IntoView {
             <div class="grid md:grid-cols-2 gap-12 w-full">
                 // Steps
                 <div class="space-y-12">
-                    <div class="flex gap-6">
-                        <div class="flex-shrink-0 w-12 h-12 bg-white/5 border border-white/10 flex items-center justify-center font-mono font-bold text-lg text-white">
+                    <div class="flex gap-6 scroll-reveal-left delay-100">
+                        <div class="flex-shrink-0 w-12 h-12 bg-white/5 border border-white/10 flex items-center justify-center font-mono font-bold text-lg text-white group hover:border-amber-500/50 hover:bg-amber-500/10 transition-all duration-300 cursor-default">
                             "01"
                         </div>
                         <div>
                             <h4 class="text-white font-bold mb-2">"Trigger"</h4>
                             <p class="text-gray-400 text-sm">
                                 "Use the global alias "
-                                <code class="text-amber-500">"rush"</code>
+                                <code class="text-amber-500 bg-amber-500/10 px-1 rounded">"rush"</code>
                                 " or map it to a hotkey. No context switching required."
                             </p>
                         </div>
                     </div>
 
-                    <div class="flex gap-6">
-                        <div class="flex-shrink-0 w-12 h-12 bg-white/5 border border-white/10 flex items-center justify-center font-mono font-bold text-lg text-white">
+                    <div class="flex gap-6 scroll-reveal-left delay-200">
+                        <div class="flex-shrink-0 w-12 h-12 bg-white/5 border border-white/10 flex items-center justify-center font-mono font-bold text-lg text-white group hover:border-amber-500/50 hover:bg-amber-500/10 transition-all duration-300 cursor-default">
                             "02"
                         </div>
                         <div>
@@ -437,8 +450,8 @@ fn HowItWorks() -> impl IntoView {
                         </div>
                     </div>
 
-                    <div class="flex gap-6">
-                        <div class="flex-shrink-0 w-12 h-12 bg-white/5 border border-white/10 flex items-center justify-center font-mono font-bold text-lg text-white">
+                    <div class="flex gap-6 scroll-reveal-left delay-300">
+                        <div class="flex-shrink-0 w-12 h-12 bg-white/5 border border-white/10 flex items-center justify-center font-mono font-bold text-lg text-white group hover:border-amber-500/50 hover:bg-amber-500/10 transition-all duration-300 cursor-default">
                             "03"
                         </div>
                         <div>
@@ -451,12 +464,12 @@ fn HowItWorks() -> impl IntoView {
                 </div>
 
                 // Activity Log
-                <div class="bg-[#050505] border border-white/10 p-6 rounded-sm font-mono text-xs md:text-sm text-gray-400 flex flex-col justify-center">
+                <div class="bg-[#050505] border border-white/10 p-6 rounded-sm font-mono text-xs md:text-sm text-gray-400 flex flex-col justify-center card-lift scroll-reveal-right delay-200">
                     <div class="mb-4 border-b border-white/5 pb-2 text-white/30 uppercase tracking-widest">
                         "Recent Activity Log"
                     </div>
                     <div class="space-y-4">
-                        <div class="flex gap-4">
+                        <div class="flex gap-4 items-center hover:bg-white/5 p-2 -mx-2 rounded transition-colors duration-300">
                             <span class="text-white/20">"10:42:01"</span>
                             <span class="text-green-500">"SUCCESS"</span>
                             <span>
@@ -464,7 +477,7 @@ fn HowItWorks() -> impl IntoView {
                                 <span class="text-gray-200">"git reset --soft HEAD~1"</span>
                             </span>
                         </div>
-                        <div class="flex gap-4">
+                        <div class="flex gap-4 items-center hover:bg-white/5 p-2 -mx-2 rounded transition-colors duration-300">
                             <span class="text-white/20">"10:45:12"</span>
                             <span class="text-green-500">"SUCCESS"</span>
                             <span>
@@ -472,12 +485,12 @@ fn HowItWorks() -> impl IntoView {
                                 <span class="text-gray-200">"docker system prune -a"</span>
                             </span>
                         </div>
-                        <div class="flex gap-4">
+                        <div class="flex gap-4 items-center hover:bg-white/5 p-2 -mx-2 rounded transition-colors duration-300">
                             <span class="text-white/20">"11:01:55"</span>
                             <span class="text-amber-500">"SKIPPED"</span>
                             <span>"user rejected \"rm -rf /\" (Safety Guard triggered)"</span>
                         </div>
-                        <div class="flex gap-4">
+                        <div class="flex gap-4 items-center hover:bg-white/5 p-2 -mx-2 rounded transition-colors duration-300">
                             <span class="text-white/20">"11:15:20"</span>
                             <span class="text-green-500">"SUCCESS"</span>
                             <span>
@@ -522,9 +535,9 @@ fn InstallationBar() -> impl IntoView {
     };
 
     view! {
-        <section class="w-full bg-white text-black py-20 px-6">
+        <section class="w-full bg-white text-black py-20 px-6 scroll-reveal-scale">
             <div class="max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-between gap-8">
-                <div>
+                <div class="scroll-reveal-left">
                     <h2 class="text-3xl font-bold mb-2 tracking-tight">
                         "Ready to streamline?"
                     </h2>
@@ -533,14 +546,14 @@ fn InstallationBar() -> impl IntoView {
                     </p>
                 </div>
 
-                <div class="relative group">
-                    <div class="flex items-center gap-4 bg-black/5 border border-black/10 rounded-sm p-2 pl-4 pr-2 hover:border-black/30 transition-colors w-full md:w-auto">
+                <div class="relative group scroll-reveal-right">
+                    <div class="flex items-center gap-4 bg-black/5 border border-black/10 rounded-sm p-2 pl-4 pr-2 hover:border-black/30 transition-all duration-300 w-full md:w-auto magnetic-btn">
                         <span class="font-mono text-sm md:text-base font-medium">
                             {command}
                         </span>
                         <button
                             on:click=handle_copy
-                            class="p-2 bg-black text-white hover:bg-amber-500 transition-colors rounded-sm ml-4"
+                            class="p-2 bg-black text-white hover:bg-amber-500 transition-all duration-300 rounded-sm ml-4 magnetic-btn"
                         >
                             {move || {
                                 let is_copied = copied.get();
@@ -561,25 +574,25 @@ fn InstallationBar() -> impl IntoView {
 #[component]
 fn Footer() -> impl IntoView {
     view! {
-        <footer class="w-full max-w-7xl px-6 py-12 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-6 text-sm text-gray-500 font-mono">
+        <footer class="w-full max-w-7xl px-6 py-12 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-6 text-sm text-gray-500 font-mono animate-fade-in-up">
             <div class="flex items-center gap-2">
-                <div class="w-4 h-4 bg-white/10 flex items-center justify-center text-[10px] text-white">
+                <div class="w-4 h-4 bg-white/10 flex items-center justify-center text-[10px] text-white hover:bg-amber-500/50 transition-colors duration-300">
                     "R"
                 </div>
                 <span>"ru.sh cli © 2024"</span>
             </div>
 
             <div class="flex gap-8">
-                <a href="#" class="hover:text-white transition-colors">
+                <a href="#" class="link-underline hover:text-white transition-colors duration-300">
                     "Privacy"
                 </a>
-                <a href="#" class="hover:text-white transition-colors">
+                <a href="#" class="link-underline hover:text-white transition-colors duration-300">
                     "Terms"
                 </a>
-                <a href="#" class="hover:text-white transition-colors">
+                <a href="#" class="link-underline hover:text-white transition-colors duration-300">
                     "Twitter"
                 </a>
-                <a href="#" class="hover:text-white transition-colors">
+                <a href="https://github.com/david-saint/ru.sh" target="_blank" rel="noreferrer" class="link-underline hover:text-white transition-colors duration-300">
                     "GitHub"
                 </a>
             </div>
@@ -759,8 +772,8 @@ fn GithubIcon(size: u32) -> impl IntoView {
 }
 
 #[component]
-fn ChevronRightIcon(size: u32) -> impl IntoView {
-    view! { <Icon name="chevron-right" size=size /> }
+fn ChevronRightIcon(size: u32, #[prop(optional)] class: &'static str) -> impl IntoView {
+    view! { <Icon name="chevron-right" size=size class=class /> }
 }
 
 #[component]
@@ -781,6 +794,47 @@ fn MenuIcon(size: u32) -> impl IntoView {
 #[component]
 fn XIcon(size: u32) -> impl IntoView {
     view! { <Icon name="x" size=size /> }
+}
+
+#[wasm_bindgen::prelude::wasm_bindgen(inline_js = r#"
+    export function init_scroll_animations() {
+        const elements = document.querySelectorAll('.scroll-reveal, .scroll-reveal-left, .scroll-reveal-right, .scroll-reveal-scale');
+        
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('scroll-revealed');
+                }
+            });
+        }, {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        });
+        
+        elements.forEach(el => observer.observe(el));
+    }
+"#)]
+extern "C" {
+    fn init_scroll_animations();
+}
+
+#[component]
+fn ScrollAnimationScript() -> impl IntoView {
+    Effect::new(move |_| {
+        let window = web_sys::window().expect("window should exist");
+
+        let closure = Closure::wrap(Box::new(move || {
+            init_scroll_animations();
+        }) as Box<dyn FnMut()>);
+
+        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+            closure.as_ref().unchecked_ref(),
+            100,
+        );
+        closure.forget();
+    });
+
+    view! {}
 }
 
 #[component]
