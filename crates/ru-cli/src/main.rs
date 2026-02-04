@@ -429,6 +429,11 @@ async fn run_prompt(cli: Cli) -> Result<()> {
         }
     }
 
+    // Block execution if any limit is exceeded
+    if usage_warnings.iter().any(|w| w.is_limit_exceeded) {
+        bail!("Usage limit exceeded. Use `ru config set daily-limit <N>` or `ru config set monthly-limit <N>` to adjust limits.");
+    }
+
     println!("{}", "ru.sh - Natural Language to Bash".bold());
     println!("{}", format!("Using model: {}", model_id).dimmed());
     println!();
