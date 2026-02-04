@@ -12,7 +12,7 @@ use config::{Config, ModelPreset};
 use dialoguer::Select;
 use history::ExecutionRecord;
 use safety::{RiskLevel, SafetyReport};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::env;
 use std::io::{self, Write};
 use std::time::Instant;
@@ -291,7 +291,11 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                     } else {
                         println!(
                             "{}",
-                            format!("script-timeout: not set (default: {} seconds)", config::DEFAULT_SCRIPT_TIMEOUT_SECS).dimmed()
+                            format!(
+                                "script-timeout: not set (default: {} seconds)",
+                                config::DEFAULT_SCRIPT_TIMEOUT_SECS
+                            )
+                            .dimmed()
                         );
                     }
                 }
@@ -386,7 +390,11 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                     config.save()?;
                     println!(
                         "{}",
-                        format!("Script timeout cleared. Using default: {} seconds.", config::DEFAULT_SCRIPT_TIMEOUT_SECS).green()
+                        format!(
+                            "Script timeout cleared. Using default: {} seconds.",
+                            config::DEFAULT_SCRIPT_TIMEOUT_SECS
+                        )
+                        .green()
                     );
                 }
                 _ => bail!(
@@ -475,7 +483,9 @@ async fn run_prompt(cli: Cli) -> Result<()> {
 
     // Block execution if any limit is exceeded
     if usage_warnings.iter().any(|w| w.is_limit_exceeded) {
-        bail!("Usage limit exceeded. Use `ru config set daily-limit <N>` or `ru config set monthly-limit <N>` to adjust limits.");
+        bail!(
+            "Usage limit exceeded. Use `ru config set daily-limit <N>` or `ru config set monthly-limit <N>` to adjust limits."
+        );
     }
 
     println!("{}", "ru.sh - Natural Language to Bash".bold());
@@ -587,7 +597,8 @@ async fn run_prompt(cli: Cli) -> Result<()> {
 
     // For high/critical risk, require explicit confirmation
     if report.requires_force() {
-        let exit_code = prompt_high_risk_execution(&generated_script, &report, &api_key, &script_hash).await?;
+        let exit_code =
+            prompt_high_risk_execution(&generated_script, &report, &api_key, &script_hash).await?;
         log_execution(
             &prompt,
             &generated_script,
@@ -598,7 +609,8 @@ async fn run_prompt(cli: Cli) -> Result<()> {
         );
     } else {
         let exit_code =
-            prompt_normal_execution(&generated_script, &report, &prompt, &api_key, &script_hash).await?;
+            prompt_normal_execution(&generated_script, &report, &prompt, &api_key, &script_hash)
+                .await?;
         log_execution(
             &prompt,
             &generated_script,
@@ -708,7 +720,8 @@ async fn prompt_high_risk_execution(
 
             if input.trim().to_lowercase() == "yes" {
                 let config = Config::load()?;
-                let exit_code = execute_script(script, Some(script_hash), config.get_script_timeout()).await?;
+                let exit_code =
+                    execute_script(script, Some(script_hash), config.get_script_timeout()).await?;
                 Ok(exit_code)
             } else {
                 println!("{}", "Cancelled - confirmation not received.".red());
@@ -718,7 +731,13 @@ async fn prompt_high_risk_execution(
         1 => {
             explain_script_only(script, api_key).await?;
             // After explaining, ask again
-            Box::pin(prompt_high_risk_execution(script, report, api_key, script_hash)).await
+            Box::pin(prompt_high_risk_execution(
+                script,
+                report,
+                api_key,
+                script_hash,
+            ))
+            .await
         }
         2 => {
             println!("{}", "Cancelled.".red());
@@ -902,9 +921,13 @@ fn compute_script_hash(script: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-async fn execute_script(script: &str, expected_hash: Option<&str>, timeout_secs: u64) -> Result<Option<i32>> {
+async fn execute_script(
+    script: &str,
+    expected_hash: Option<&str>,
+    timeout_secs: u64,
+) -> Result<Option<i32>> {
     use tokio::process::Command as TokioCommand;
-    use tokio::time::{timeout, Duration};
+    use tokio::time::{Duration, timeout};
 
     // Verify script integrity (defense-in-depth against TOCTOU)
     if let Some(hash) = expected_hash {
@@ -1053,7 +1076,12 @@ mod tests {
     #[tokio::test]
     async fn test_execute_script_success() {
         // We use a simple echo command that should always succeed
-        let result = execute_script("echo 'hello world'", None, config::DEFAULT_SCRIPT_TIMEOUT_SECS).await;
+        let result = execute_script(
+            "echo 'hello world'",
+            None,
+            config::DEFAULT_SCRIPT_TIMEOUT_SECS,
+        )
+        .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Some(0));
     }
@@ -1072,7 +1100,11 @@ mod tests {
         let result = execute_script("sleep 5", None, 1).await;
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("timed out"), "Error should mention timeout: {}", err_msg);
+        assert!(
+            err_msg.contains("timed out"),
+            "Error should mention timeout: {}",
+            err_msg
+        );
     }
 
     #[test]

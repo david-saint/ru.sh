@@ -175,7 +175,8 @@ static INJECTION_PATTERNS: LazyLock<Vec<InjectionPattern>> = LazyLock::new(|| {
         },
         // Delimiter injection (injection-specific only)
         InjectionPattern {
-            regex: Regex::new(r"(?i)---\s*(end|begin|start|stop|system|prompt|instruction).*---").unwrap(),
+            regex: Regex::new(r"(?i)---\s*(end|begin|start|stop|system|prompt|instruction).*---")
+                .unwrap(),
             category: InjectionCategory::DelimiterInjection,
         },
     ]
@@ -403,7 +404,10 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
 
 /// Log rejected prompt (without exposing full prompt for privacy)
 fn log_rejection(category: InjectionCategory) {
-    eprintln!("[SECURITY] Prompt rejected: matched pattern category '{}'", category);
+    eprintln!(
+        "[SECURITY] Prompt rejected: matched pattern category '{}'",
+        category
+    );
 }
 
 /// Normalize and clean input for consistent pattern matching
@@ -415,16 +419,19 @@ fn normalize_prompt(prompt: &str) -> String {
     // Strip zero-width characters that could be used to bypass detection
     normalized
         .chars()
-        .filter(|c| !matches!(c,
-            '\u{200B}'  // Zero-width space
+        .filter(|c| {
+            !matches!(
+                c,
+                '\u{200B}'  // Zero-width space
             | '\u{200C}'  // Zero-width non-joiner
             | '\u{200D}'  // Zero-width joiner
             | '\u{FEFF}'  // Zero-width no-break space (BOM)
             | '\u{00AD}'  // Soft hyphen
             | '\u{034F}'  // Combining grapheme joiner
             | '\u{2060}'  // Word joiner
-            | '\u{2061}'..='\u{2064}'  // Invisible operators
-        ))
+            | '\u{2061}'..='\u{2064}' // Invisible operators
+            )
+        })
         .collect()
 }
 

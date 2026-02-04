@@ -166,7 +166,8 @@ fn parse_retry_after(response: &reqwest::Response) -> Option<Duration> {
 fn classify_api_error(status: StatusCode, error_text: &str) -> (String, String) {
     let user_message = match status {
         StatusCode::UNAUTHORIZED => {
-            "Authentication failed. Please check your API key is valid and has not expired.".to_string()
+            "Authentication failed. Please check your API key is valid and has not expired."
+                .to_string()
         }
         StatusCode::FORBIDDEN => {
             "Access denied. Your API key may not have permission for this operation.".to_string()
@@ -187,7 +188,10 @@ fn classify_api_error(status: StatusCode, error_text: &str) -> (String, String) 
             "OpenRouter service is temporarily unavailable. Please try again later.".to_string()
         }
         _ => {
-            format!("API request failed (status {}). Please try again.", status.as_u16())
+            format!(
+                "API request failed (status {}). Please try again.",
+                status.as_u16()
+            )
         }
     };
 
@@ -387,7 +391,8 @@ mod tests {
 
     #[test]
     fn test_classify_api_error_unauthorized() {
-        let (user_msg, debug) = classify_api_error(StatusCode::UNAUTHORIZED, "secret_internal_error");
+        let (user_msg, debug) =
+            classify_api_error(StatusCode::UNAUTHORIZED, "secret_internal_error");
         assert!(user_msg.contains("API key"));
         assert!(!user_msg.contains("secret_internal_error"));
         assert!(debug.contains("secret_internal_error"));
@@ -395,7 +400,8 @@ mod tests {
 
     #[test]
     fn test_classify_api_error_rate_limit() {
-        let (user_msg, debug) = classify_api_error(StatusCode::TOO_MANY_REQUESTS, "bucket: user_123");
+        let (user_msg, debug) =
+            classify_api_error(StatusCode::TOO_MANY_REQUESTS, "bucket: user_123");
         assert!(user_msg.contains("Rate limit"));
         assert!(!user_msg.contains("bucket"));
         assert!(debug.contains("bucket"));
@@ -403,7 +409,8 @@ mod tests {
 
     #[test]
     fn test_classify_api_error_server_error() {
-        let (user_msg, debug) = classify_api_error(StatusCode::INTERNAL_SERVER_ERROR, "stack trace here");
+        let (user_msg, debug) =
+            classify_api_error(StatusCode::INTERNAL_SERVER_ERROR, "stack trace here");
         assert!(user_msg.contains("temporarily unavailable"));
         assert!(!user_msg.contains("stack trace"));
         assert!(debug.contains("stack trace"));
