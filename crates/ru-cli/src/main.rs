@@ -9,8 +9,8 @@ mod usage;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use colored::Colorize;
-use config::{Config, ModelPreset};
-use dialoguer::Select;
+use config::{Config, ExplainVerbosity, ModelPreset};
+use dialoguer::{Select, theme::ColorfulTheme};
 use history::ExecutionRecord;
 use safety::{RiskLevel, SafetyReport};
 use sha2::{Digest, Sha256};
@@ -431,10 +431,7 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                 "shell" => {
                     config.clear_shell();
                     config.save()?;
-                    println!(
-                        "{}",
-                        "Shell cleared. Using auto-detection.".green()
-                    );
+                    println!("{}", "Shell cleared. Using auto-detection.".green());
                 }
                 _ => bail!(
                     "Unknown config key: {}. Available keys: api-key, model, shell, model.fast, model.standard, model.quality, model.explainer, daily-limit, monthly-limit, script-timeout",
@@ -471,10 +468,13 @@ fn handle_config(action: ConfigAction) -> Result<()> {
             println!("{}", "Explainer:".bold());
             let default_explainer = config::DEFAULT_MODEL_EXPLAINER;
             if config.explainer_model.is_some() {
-                println!("  explainer: {}", config.get_explainer_model().cyan());
-                println!("    {} {}", "default:".dimmed(), default_explainer.dimmed());
+                println!(
+                    "model.explainer: {} (default: {})",
+                    config.get_explainer_model(),
+                    default_explainer
+                );
             } else {
-                println!("  explainer: {}", default_explainer.cyan());
+                println!("model.explainer: {} (default)", default_explainer);
             }
         }
     }
@@ -543,8 +543,7 @@ async fn run_prompt(cli: Cli) -> Result<()> {
     println!();
 
     let start = Instant::now();
-    let generated_script =
-        api::generate_script(&prompt, &api_key, &model_id, &shell).await?;
+    let generated_script = api::generate_script(&prompt, &api_key, &model_id, &shell).await?;
     let api_duration_ms = start.elapsed().as_millis() as u64;
 
     // Compute script hash for integrity verification (TOCTOU defense)
@@ -649,14 +648,9 @@ async fn run_prompt(cli: Cli) -> Result<()> {
 
     // For high/critical risk, require explicit confirmation
     if report.requires_force() {
-        let exit_code = prompt_high_risk_execution(
-            &generated_script,
-            &report,
-            &api_key,
-            &script_hash,
-            &shell,
-        )
-        .await?;
+        let exit_code =
+            prompt_high_risk_execution(&generated_script, &report, &api_key, &script_hash, &shell)
+                .await?;
         log_execution(
             &prompt,
             &generated_script,
@@ -730,12 +724,28 @@ fn display_script_with_safety(script: &str, report: &SafetyReport) {
         println!();
     }
 
-    println!("{}", "Generated script:".cyan().bold());
-    println!("{}", "-".repeat(40).dimmed());
-    // Sanitize script to prevent terminal injection attacks
-    println!("{}", sanitize::for_display(script).yellow());
-    println!("{}", "-".repeat(40).dimmed());
+    // Styled suggestion box matching the design
+    // ru-orange: #f59e0a (245, 158, 10)
+    let orange = colored::Color::TrueColor {
+        r: 245,
+        g: 158,
+        b: 10,
+    };
+    let border = "┃".color(orange).dimmed();
+    let label = "SUGGESTED COMMAND".color(orange).dimmed();
 
+    println!("{} {}", border, label);
+    println!("{} ", border);
+
+    // Sanitize script to prevent terminal injection attacks
+    let sanitized = sanitize::for_display(script);
+    let content_width = terminal_content_width(2); // "┃ " prefix = 2 chars
+    for line in sanitized.lines() {
+        for wrapped in wrap_line(line, content_width) {
+            println!("{} {}", border, wrapped.white().bold());
+        }
+    }
+    println!();
     // Show syntax error if present
     if !report.syntax_valid
         && let Some(ref error) = report.syntax_error
@@ -768,8 +778,8 @@ async fn prompt_high_risk_execution(
     println!();
 
     let options = vec!["Confirm (type 'yes')", "Explain", "Cancel"];
-    let selection = Select::new()
-        .with_prompt("What would you like to do?")
+    let selection = Select::with_theme(&select_theme())
+        .with_prompt("Execute this command?")
         .items(&options)
         .default(2) // Default to Cancel for safety
         .interact()?;
@@ -828,8 +838,8 @@ async fn prompt_normal_execution(
     shell: &Shell,
 ) -> Result<Option<i32>> {
     let options = vec!["Execute", "Explain", "Cancel"];
-    let selection = Select::new()
-        .with_prompt("What would you like to do?")
+    let selection = Select::with_theme(&select_theme())
+        .with_prompt("Execute this command?")
         .items(&options)
         .default(0)
         .interact()?;
@@ -837,7 +847,13 @@ async fn prompt_normal_execution(
     match selection {
         0 => {
             let config = Config::load()?;
-            execute_script(script, Some(script_hash), config.get_script_timeout(), shell).await
+            execute_script(
+                script,
+                Some(script_hash),
+                config.get_script_timeout(),
+                shell,
+            )
+            .await
         }
         1 => explain_and_prompt(script, api_key, script_hash, shell).await,
         2 => {
@@ -933,17 +949,13 @@ fn determine_api_key(
 fn resolve_shell(cli_shell: Option<String>) -> Result<Shell> {
     // CLI flag takes highest priority
     if let Some(shell_str) = cli_shell {
-        return shell_str
-            .parse::<Shell>()
-            .map_err(|e| anyhow::anyhow!(e));
+        return shell_str.parse::<Shell>().map_err(|e| anyhow::anyhow!(e));
     }
 
     // Config file takes next priority
     let config = Config::load()?;
     if let Some(shell_str) = config.get_shell() {
-        return shell_str
-            .parse::<Shell>()
-            .map_err(|e| anyhow::anyhow!(e));
+        return shell_str.parse::<Shell>().map_err(|e| anyhow::anyhow!(e));
     }
 
     // Fall back to auto-detection
@@ -996,14 +1008,22 @@ async fn explain_and_prompt(
 
     // Ask what to do next
     let options = vec!["Execute", "Cancel"];
-    let selection = Select::new()
+    let selection = Select::with_theme(&select_theme())
         .with_prompt("What would you like to do?")
         .items(&options)
         .default(0)
         .interact()?;
 
     match selection {
-        0 => execute_script(script, Some(script_hash), config.get_script_timeout(), shell).await,
+        0 => {
+            execute_script(
+                script,
+                Some(script_hash),
+                config.get_script_timeout(),
+                shell,
+            )
+            .await
+        }
         1 => {
             println!("{}", "Cancelled.".red());
             Ok(None)
@@ -1105,6 +1125,99 @@ async fn execute_script(
     }
 }
 
+/// Build a Select theme with bold active item styling.
+fn select_theme() -> ColorfulTheme {
+    ColorfulTheme {
+        active_item_style: console::Style::new().bold(),
+        active_item_prefix: console::style("▸ ".to_string()).bold(),
+        inactive_item_prefix: console::style("  ".to_string()),
+        ..ColorfulTheme::default()
+    }
+}
+
+/// Get usable content width for bordered output, accounting for prefix columns.
+fn terminal_content_width(prefix_cols: usize) -> usize {
+    // Try to detect terminal width; fall back to 80
+    let term_width = term_width().unwrap_or(80);
+    term_width.saturating_sub(prefix_cols).max(20)
+}
+
+/// Detect terminal width from the environment.
+fn term_width() -> Option<usize> {
+    // Check COLUMNS env var first (set by most shells)
+    if let Ok(cols) = env::var("COLUMNS") {
+        if let Ok(w) = cols.parse::<usize>() {
+            if w > 0 {
+                return Some(w);
+            }
+        }
+    }
+    // Use ioctl on Unix
+    #[cfg(unix)]
+    {
+        use std::mem::zeroed;
+        unsafe {
+            let mut ws: libc_winsize = zeroed();
+            if libc_ioctl(1, TIOCGWINSZ, &mut ws) == 0 && ws.ws_col > 0 {
+                return Some(ws.ws_col as usize);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(unix)]
+#[repr(C)]
+struct libc_winsize {
+    ws_row: u16,
+    ws_col: u16,
+    ws_xpixel: u16,
+    ws_ypixel: u16,
+}
+
+#[cfg(unix)]
+const TIOCGWINSZ: libc::c_ulong = 0x40087468;
+
+#[cfg(unix)]
+unsafe fn libc_ioctl(fd: i32, request: libc::c_ulong, arg: *mut libc_winsize) -> i32 {
+    unsafe { libc::ioctl(fd, request, arg) }
+}
+
+/// Wrap a single line to fit within `max_width` columns, breaking at word boundaries when possible.
+fn wrap_line(line: &str, max_width: usize) -> Vec<&str> {
+    if line.len() <= max_width {
+        return vec![line];
+    }
+
+    let mut result = Vec::new();
+    let mut start = 0;
+
+    while start < line.len() {
+        if start + max_width >= line.len() {
+            result.push(&line[start..]);
+            break;
+        }
+
+        // Look for the last space within the width limit for a clean break
+        let end = start + max_width;
+        let chunk = &line[start..end];
+        if let Some(break_pos) = chunk.rfind(' ') {
+            // Only break at space if it's not too far back (at least half the width)
+            if break_pos > max_width / 2 {
+                result.push(&line[start..start + break_pos]);
+                start += break_pos + 1; // skip the space
+                continue;
+            }
+        }
+
+        // No good word break; hard-break at max_width
+        result.push(&line[start..end]);
+        start = end;
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1193,9 +1306,13 @@ mod tests {
     #[tokio::test]
     async fn test_execute_script_failure() {
         // We use a command that is guaranteed to fail
-        let result =
-            execute_script("exit 1", None, config::DEFAULT_SCRIPT_TIMEOUT_SECS, &Shell::Bash)
-                .await;
+        let result = execute_script(
+            "exit 1",
+            None,
+            config::DEFAULT_SCRIPT_TIMEOUT_SECS,
+            &Shell::Bash,
+        )
+        .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Some(1));
     }
