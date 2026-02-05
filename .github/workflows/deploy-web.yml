@@ -27,9 +27,9 @@ jobs:
       - name: Build
         run: cd crates/ru-web && trunk build --release
 
-      - name: Deploy to Cloudflare Pages
+      - name: Deploy to Cloudflare
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy crates/ru-web/dist --project-name=ru-sh
+          command: deploy
