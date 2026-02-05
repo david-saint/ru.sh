@@ -1,5 +1,5 @@
 use crate::shell::Shell;
-use regex::Regex;
+use regex::{Regex, RegexSet};
 use std::fmt;
 use std::process::Command;
 use std::sync::LazyLock;
@@ -127,7 +127,7 @@ impl ShellScope {
 
 /// Pattern definition for detection
 struct DangerPattern {
-    regex: Regex,
+    pattern: &'static str,
     level: RiskLevel,
     category: WarningCategory,
     description: &'static str,
@@ -217,43 +217,42 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
 
         // === CRITICAL: System destruction ===
         DangerPattern {
-            regex: Regex::new(r"rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+/\s*($|[;&|])").unwrap(),
+            pattern: r"rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+/\s*($|[;&|])",
             level: RiskLevel::Critical,
             category: WarningCategory::SystemDestruction,
             description: "Removes the root filesystem - will destroy the system",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r"rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+/(home|etc|root|var|usr|boot|bin|sbin|lib|lib64)(/|\s|$)").unwrap(),
+            pattern: r"rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+/(home|etc|root|var|usr|boot|bin|sbin|lib|lib64)(/|\s|$)",
             level: RiskLevel::Critical,
             category: WarningCategory::SystemDestruction,
             description: "Removes critical system directories",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:").unwrap(),
+            pattern: r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:",
             level: RiskLevel::Critical,
             category: WarningCategory::SystemDestruction,
             description: "Fork bomb - will crash the system by exhausting resources",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r">\s*/dev/(sd[a-z]|vd[a-z]|nvme\d+n\d+|mmcblk\d+)").unwrap(),
+            pattern: r">\s*/dev/(sd[a-z]|vd[a-z]|nvme\d+n\d+|mmcblk\d+)",
             level: RiskLevel::Critical,
             category: WarningCategory::SystemDestruction,
             description: "Direct write to disk device - will destroy filesystem",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r"dd\s+.*of=/dev/(sd[a-z]|vd[a-z]|nvme\d+n\d+|mmcblk\d+)").unwrap(),
+            pattern: r"dd\s+.*of=/dev/(sd[a-z]|vd[a-z]|nvme\d+n\d+|mmcblk\d+)",
             level: RiskLevel::Critical,
             category: WarningCategory::SystemDestruction,
             description: "Writing directly to disk device with dd",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r"mkfs(\.[a-z0-9]+)?\s+/dev/(sd[a-z]|vd[a-z]|nvme\d+n\d+|mmcblk\d+)")
-                .unwrap(),
+            pattern: r"mkfs(\.[a-z0-9]+)?\s+/dev/(sd[a-z]|vd[a-z]|nvme\d+n\d+|mmcblk\d+)",
             level: RiskLevel::Critical,
             category: WarningCategory::SystemDestruction,
             description: "Formatting a disk device - will erase all data",
@@ -261,42 +260,42 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
         },
         // === HIGH: Data loss / Privilege escalation ===
         DangerPattern {
-            regex: Regex::new(r"rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+\*").unwrap(),
+            pattern: r"rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+\*",
             level: RiskLevel::High,
             category: WarningCategory::DataLoss,
             description: "Recursively removes files with wildcard - may delete more than intended",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r"sudo\s+rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)").unwrap(),
+            pattern: r"sudo\s+rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)",
             level: RiskLevel::High,
             category: WarningCategory::DataLoss,
             description: "Privileged recursive deletion - dangerous with elevated permissions",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r"(curl|wget)\s+[^\n|]*\|\s*(sudo\s+)?(ba)?sh").unwrap(),
+            pattern: r"(curl|wget)\s+[^\n|]*\|\s*(sudo\s+)?(ba)?sh",
             level: RiskLevel::High,
             category: WarningCategory::RemoteCodeExecution,
             description: "Downloading and executing remote code without inspection",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r"chmod\s+777\s+").unwrap(),
+            pattern: r"chmod\s+777\s+",
             level: RiskLevel::High,
             category: WarningCategory::InsecurePermissions,
             description: "Setting world-writable permissions - severe security risk",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r">\s*/etc/(passwd|shadow|sudoers)").unwrap(),
+            pattern: r">\s*/etc/(passwd|shadow|sudoers)",
             level: RiskLevel::High,
             category: WarningCategory::PrivilegeEscalation,
             description: "Overwriting critical authentication files",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r"echo\s+[^\n]*>>\s*/etc/sudoers").unwrap(),
+            pattern: r"echo\s+[^\n]*>>\s*/etc/sudoers",
             level: RiskLevel::High,
             category: WarningCategory::PrivilegeEscalation,
             description: "Modifying sudoers file - privilege escalation risk",
@@ -304,28 +303,28 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
         },
         // === HIGH: Obfuscation/Shell injection ===
         DangerPattern {
-            regex: Regex::new(r"\|\s*(ba)?sh\b").unwrap(),
+            pattern: r"\|\s*(ba)?sh\b",
             level: RiskLevel::High,
             category: WarningCategory::RemoteCodeExecution,
             description: "Piping content to shell - may execute arbitrary code",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r"base64\s+(-d|--decode)\s*\|\s*(ba)?sh").unwrap(),
+            pattern: r"base64\s+(-d|--decode)\s*\|\s*(ba)?sh",
             level: RiskLevel::High,
             category: WarningCategory::RemoteCodeExecution,
             description: "Base64 decode piped to shell - classic obfuscation technique",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r"source\s+/dev/stdin").unwrap(),
+            pattern: r"source\s+/dev/stdin",
             level: RiskLevel::High,
             category: WarningCategory::RemoteCodeExecution,
             description: "Sourcing from stdin - executes piped content in current shell",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r"\.\s+/dev/stdin").unwrap(),
+            pattern: r"\.\s+/dev/stdin",
             level: RiskLevel::High,
             category: WarningCategory::RemoteCodeExecution,
             description: "Dot-sourcing from stdin - executes piped content in current shell",
@@ -333,14 +332,14 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
         },
         // === HIGH: Network/Persistence threats ===
         DangerPattern {
-            regex: Regex::new(r"\b(ncat|nc|netcat|socat)\b").unwrap(),
+            pattern: r"\b(ncat|nc|netcat|socat)\b",
             level: RiskLevel::High,
             category: WarningCategory::RemoteCodeExecution,
             description: "Network tool often used for reverse shells",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r"crontab\s+-[a-zA-Z]*e").unwrap(),
+            pattern: r"crontab\s+-[a-zA-Z]*e",
             level: RiskLevel::High,
             category: WarningCategory::PrivilegeEscalation,
             description: "Editing crontab - persistence mechanism for malicious code",
@@ -348,35 +347,35 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
         },
         // === MEDIUM: Caution required ===
         DangerPattern {
-            regex: Regex::new(r"\bsudo\b").unwrap(),
+            pattern: r"\bsudo\b",
             level: RiskLevel::Medium,
             category: WarningCategory::PrivilegeEscalation,
             description: "Uses elevated privileges",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r"rm\s+-[a-zA-Z]*[rf]").unwrap(),
+            pattern: r"rm\s+-[a-zA-Z]*[rf]",
             level: RiskLevel::Medium,
             category: WarningCategory::DangerousFileOp,
             description: "Recursive or forced file deletion",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r"\beval\b").unwrap(),
+            pattern: r"\beval\b",
             level: RiskLevel::Medium,
             category: WarningCategory::DynamicExecution,
             description: "Dynamic code execution with eval",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r"\$\([^)]+\)").unwrap(),
+            pattern: r"\$\([^)]+\)",
             level: RiskLevel::Medium,
             category: WarningCategory::DynamicExecution,
             description: "Command substitution - executes nested commands",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r"`[^`]+`").unwrap(),
+            pattern: r"`[^`]+`",
             level: RiskLevel::Medium,
             category: WarningCategory::DynamicExecution,
             description: "Backtick command substitution",
@@ -384,21 +383,21 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
         },
         // === MEDIUM: Obfuscation detection ===
         DangerPattern {
-            regex: Regex::new(r"base64\s+(-d|--decode)").unwrap(),
+            pattern: r"base64\s+(-d|--decode)",
             level: RiskLevel::Medium,
             category: WarningCategory::DynamicExecution,
             description: "Base64 decoding - may be used to obfuscate commands",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r#"printf\s+['"]\\x[0-9a-fA-F]"#).unwrap(),
+            pattern: r#"printf\s+['"]\\x[0-9a-fA-F]"#,
             level: RiskLevel::Medium,
             category: WarningCategory::DynamicExecution,
             description: "Hex-encoded printf - may be obfuscating commands",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r"xxd\s+(-r|--reverse)").unwrap(),
+            pattern: r"xxd\s+(-r|--reverse)",
             level: RiskLevel::Medium,
             category: WarningCategory::DynamicExecution,
             description: "xxd reverse - may be decoding obfuscated content",
@@ -406,14 +405,14 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
         },
         // === MEDIUM: Credential/key access ===
         DangerPattern {
-            regex: Regex::new(r"\.bash_history").unwrap(),
+            pattern: r"\.bash_history",
             level: RiskLevel::Medium,
             category: WarningCategory::PrivilegeEscalation,
             description: "Accessing bash history - may contain credentials",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r"\.ssh/(id_|authorized_keys|known_hosts)").unwrap(),
+            pattern: r"\.ssh/(id_|authorized_keys|known_hosts)",
             level: RiskLevel::Medium,
             category: WarningCategory::PrivilegeEscalation,
             description: "Accessing SSH keys or config - sensitive authentication data",
@@ -421,14 +420,14 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
         },
         // === MEDIUM: Supply chain risk (all shells) ===
         DangerPattern {
-            regex: Regex::new(r"(pip|pip3)\s+install").unwrap(),
+            pattern: r"(pip|pip3)\s+install",
             level: RiskLevel::Medium,
             category: WarningCategory::RemoteCodeExecution,
             description: "Installing Python packages - supply chain risk",
             scope: ShellScope::All,
         },
         DangerPattern {
-            regex: Regex::new(r"npm\s+install\s+(-g|--global)").unwrap(),
+            pattern: r"npm\s+install\s+(-g|--global)",
             level: RiskLevel::Medium,
             category: WarningCategory::RemoteCodeExecution,
             description: "Installing global npm packages - supply chain risk",
@@ -436,14 +435,14 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
         },
         // === MEDIUM: Bulk deletion ===
         DangerPattern {
-            regex: Regex::new(r"xargs\s+.*\brm\b").unwrap(),
+            pattern: r"xargs\s+.*\brm\b",
             level: RiskLevel::Medium,
             category: WarningCategory::DataLoss,
             description: "Bulk deletion with xargs - verify file list carefully",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r"find\s+.*-exec\s+.*\brm\b").unwrap(),
+            pattern: r"find\s+.*-exec\s+.*\brm\b",
             level: RiskLevel::Medium,
             category: WarningCategory::DataLoss,
             description: "Bulk deletion with find -exec - verify search criteria",
@@ -451,34 +450,33 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
         },
         // === LOW: Informational ===
         DangerPattern {
-            regex: Regex::new(r"\bmv\b").unwrap(),
+            pattern: r"\bmv\b",
             level: RiskLevel::Low,
             category: WarningCategory::DangerousFileOp,
             description: "File move operation - verify source and destination",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            regex: Regex::new(r"cp\s+-[a-zA-Z]*r").unwrap(),
+            pattern: r"cp\s+-[a-zA-Z]*r",
             level: RiskLevel::Low,
             category: WarningCategory::DangerousFileOp,
             description: "Recursive copy operation",
             scope: ShellScope::Unix,
         },
-
         // ================================================================
         // PowerShell patterns
         // ================================================================
 
         // === CRITICAL: System destruction ===
         DangerPattern {
-            regex: Regex::new(r"(?i)Remove-Item\s+.*-Recurse.*-Force.*C:\\Windows").unwrap(),
+            pattern: r"(?i)Remove-Item\s+.*-Recurse.*-Force.*C:\\Windows",
             level: RiskLevel::Critical,
             category: WarningCategory::SystemDestruction,
             description: "Removes Windows system directory - will destroy the system",
             scope: ShellScope::PowerShell,
         },
         DangerPattern {
-            regex: Regex::new(r"(?i)Remove-Item\s+.*-Recurse.*-Force.*C:\\(Users|Program)").unwrap(),
+            pattern: r"(?i)Remove-Item\s+.*-Recurse.*-Force.*C:\\(Users|Program)",
             level: RiskLevel::Critical,
             category: WarningCategory::SystemDestruction,
             description: "Removes critical Windows directories",
@@ -486,41 +484,40 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
         },
         // === HIGH: Remote code execution / Dangerous operations ===
         DangerPattern {
-            regex: Regex::new(r"(?i)\b(Invoke-Expression|iex)\b").unwrap(),
+            pattern: r"(?i)\b(Invoke-Expression|iex)\b",
             level: RiskLevel::High,
             category: WarningCategory::RemoteCodeExecution,
             description: "Invoke-Expression (iex) - dynamic code execution risk",
             scope: ShellScope::PowerShell,
         },
         DangerPattern {
-            regex: Regex::new(r"(?i)Invoke-WebRequest.*\|\s*(Invoke-Expression|iex)").unwrap(),
+            pattern: r"(?i)Invoke-WebRequest.*\|\s*(Invoke-Expression|iex)",
             level: RiskLevel::High,
             category: WarningCategory::RemoteCodeExecution,
             description: "Downloading and executing remote code without inspection",
             scope: ShellScope::PowerShell,
         },
         DangerPattern {
-            regex: Regex::new(r"(?i)Set-ExecutionPolicy\s+(Unrestricted|Bypass)").unwrap(),
+            pattern: r"(?i)Set-ExecutionPolicy\s+(Unrestricted|Bypass)",
             level: RiskLevel::High,
             category: WarningCategory::InsecurePermissions,
             description: "Setting unrestricted execution policy - bypasses script safety",
             scope: ShellScope::PowerShell,
         },
-
         // ================================================================
         // cmd.exe patterns
         // ================================================================
 
         // === CRITICAL: System destruction ===
         DangerPattern {
-            regex: Regex::new(r"(?i)rd\s+/s\s+/q\s+C:\\Windows").unwrap(),
+            pattern: r"(?i)rd\s+/s\s+/q\s+C:\\Windows",
             level: RiskLevel::Critical,
             category: WarningCategory::SystemDestruction,
             description: "Recursively deletes Windows system directory",
             scope: ShellScope::Cmd,
         },
         DangerPattern {
-            regex: Regex::new(r"(?i)format\s+C:").unwrap(),
+            pattern: r"(?i)format\s+C:",
             level: RiskLevel::Critical,
             category: WarningCategory::SystemDestruction,
             description: "Formatting system drive - will erase all data",
@@ -528,13 +525,19 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
         },
         // === HIGH: Data loss ===
         DangerPattern {
-            regex: Regex::new(r"(?i)del\s+/s\s+/q\s+C:\\").unwrap(),
+            pattern: r"(?i)del\s+/s\s+/q\s+C:\\",
             level: RiskLevel::High,
             category: WarningCategory::DataLoss,
             description: "Recursively deletes files from system drive",
             scope: ShellScope::Cmd,
         },
     ]
+});
+
+/// Compiled regex set for faster matching
+static DANGER_REGEX_SET: LazyLock<RegexSet> = LazyLock::new(|| {
+    let patterns: Vec<&str> = DANGER_PATTERNS.iter().map(|p| p.pattern).collect();
+    RegexSet::new(patterns).expect("Failed to compile danger patterns regex set")
 });
 
 /// Log rejected prompt (without exposing full prompt for privacy)
@@ -656,29 +659,29 @@ pub fn analyze_script(script: &str, shell: &Shell) -> SafetyReport {
     let mut warnings = Vec::new();
     let mut max_level = RiskLevel::Safe;
 
-    // Check for dangerous patterns, filtered by shell scope
-    for pattern in DANGER_PATTERNS.iter() {
+    // Check for dangerous patterns using RegexSet for O(1) matching
+    let matches = DANGER_REGEX_SET.matches(script);
+    for index in matches.into_iter() {
+        let pattern = &DANGER_PATTERNS[index];
         if !pattern.scope.matches(shell) {
             continue;
         }
 
-        if pattern.regex.is_match(script) {
-            // Avoid duplicate warnings for overlapping patterns
-            let already_warned = warnings.iter().any(|w: &SafetyWarning| {
-                w.category == pattern.category && w.level >= pattern.level
-            });
+        // Avoid duplicate warnings for overlapping patterns
+        let already_warned = warnings
+            .iter()
+            .any(|w: &SafetyWarning| w.category == pattern.category && w.level >= pattern.level);
 
-            if !already_warned {
-                if pattern.level > max_level {
-                    max_level = pattern.level;
-                }
-
-                warnings.push(SafetyWarning {
-                    level: pattern.level,
-                    category: pattern.category.clone(),
-                    description: pattern.description.to_string(),
-                });
+        if !already_warned {
+            if pattern.level > max_level {
+                max_level = pattern.level;
             }
+
+            warnings.push(SafetyWarning {
+                level: pattern.level,
+                category: pattern.category.clone(),
+                description: pattern.description.to_string(),
+            });
         }
     }
 

@@ -362,12 +362,13 @@ pub async fn generate_script(
 
     let content = chat_response
         .choices
-        .first()
-        .map(|c| c.message.content.clone())
+        .into_iter()
+        .next()
+        .map(|c| c.message.content)
         .unwrap_or_default();
 
     // Clean up the response - remove markdown code blocks if present
-    let script = strip_code_blocks(&content);
+    let script = strip_code_blocks(content);
 
     Ok(script)
 }
@@ -441,29 +442,29 @@ pub async fn explain_script(
 }
 
 /// Strip markdown code blocks from the response
-fn strip_code_blocks(content: &str) -> String {
-    let content = content.trim();
+fn strip_code_blocks(content: String) -> String {
+    let trimmed = content.trim();
 
-    if content.starts_with("```") {
+    if trimmed.starts_with("```") {
         // Find the end of the first line to skip the opening fence
-        if let Some(first_newline) = content.find('\n') {
+        if let Some(first_newline) = trimmed.find('\n') {
             let start = first_newline + 1;
 
             // Check if there is anything after the first line
-            if start >= content.len() {
+            if start >= trimmed.len() {
                 return String::new();
             }
 
             // Check for closing fence. We check for "\n```" which handles both
             // Unix (\n) and Windows (\r\n) line endings (since \r\n ends with \n)
-            let end = if content.ends_with("\n```") {
-                content.len() - 4
+            let end = if trimmed.ends_with("\n```") {
+                trimmed.len() - 4
             } else {
-                content.len()
+                trimmed.len()
             };
 
             if start < end {
-                return content[start..end].trim().to_string();
+                return trimmed[start..end].trim().to_string();
             } else {
                 return String::new();
             }
@@ -473,7 +474,12 @@ fn strip_code_blocks(content: &str) -> String {
         }
     }
 
-    content.to_string()
+    // Optimization: If no trimming was needed, return original String
+    if trimmed.len() == content.len() {
+        return content;
+    }
+
+    trimmed.to_string()
 }
 
 #[cfg(test)]
@@ -483,31 +489,34 @@ mod tests {
     #[test]
     fn test_strip_code_blocks_bash() {
         let input = "```bash\nls -la\n```";
-        assert_eq!(strip_code_blocks(input), "ls -la");
+        assert_eq!(strip_code_blocks(input.to_string()), "ls -la");
     }
 
     #[test]
     fn test_strip_code_blocks_sh() {
         let input = "```sh\necho hello\n```";
-        assert_eq!(strip_code_blocks(input), "echo hello");
+        assert_eq!(strip_code_blocks(input.to_string()), "echo hello");
     }
 
     #[test]
     fn test_strip_code_blocks_plain() {
         let input = "```\nfind . -name '*.rs'\n```";
-        assert_eq!(strip_code_blocks(input), "find . -name '*.rs'");
+        assert_eq!(strip_code_blocks(input.to_string()), "find . -name '*.rs'");
     }
 
     #[test]
     fn test_strip_code_blocks_none() {
         let input = "ls -la";
-        assert_eq!(strip_code_blocks(input), "ls -la");
+        assert_eq!(strip_code_blocks(input.to_string()), "ls -la");
     }
 
     #[test]
     fn test_strip_code_blocks_multiline() {
         let input = "```bash\necho one\necho two\necho three\n```";
-        assert_eq!(strip_code_blocks(input), "echo one\necho two\necho three");
+        assert_eq!(
+            strip_code_blocks(input.to_string()),
+            "echo one\necho two\necho three"
+        );
     }
 
     #[test]
@@ -566,7 +575,7 @@ mod tests {
     #[test]
     fn test_strip_code_blocks_crlf() {
         let input = "```bash\r\necho hello\r\n```";
-        assert_eq!(strip_code_blocks(input), "echo hello");
+        assert_eq!(strip_code_blocks(input.to_string()), "echo hello");
     }
 
     #[test]
