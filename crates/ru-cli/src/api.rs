@@ -3,8 +3,8 @@ use crate::shell::Shell;
 use anyhow::{Context, Result, bail};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 const OPENROUTER_API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
