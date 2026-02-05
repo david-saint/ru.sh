@@ -1016,14 +1016,17 @@ fn resolve_model(
         return Ok(model_id);
     }
 
-    // Make a clone to allow modification for temporary preset selection
-    let mut config = config.clone();
-
-    // CLI preset takes next priority (but still respects user's custom model for that preset)
+    // CLI preset takes next priority
     if let Some(preset_str) = cli_preset {
         let preset: ModelPreset = preset_str.parse().map_err(|e: String| anyhow::anyhow!(e))?;
-        config.set_model_preset(preset);
-        return Ok(config.get_model_id().to_string());
+
+        // Check for user-configured preset override in the config
+        if let Some(custom_preset_model) = config.get_preset_model(&preset) {
+            return Ok(custom_preset_model.to_string());
+        }
+
+        // Fall back to built-in default for that preset
+        return Ok(Config::get_default_model_id(&preset).to_string());
     }
 
     // Fall back to config file settings

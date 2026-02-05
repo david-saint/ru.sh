@@ -131,7 +131,7 @@ impl PresetModels {
     }
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
     pub api_key: Option<String>,
     /// Model preset (fast, standard, quality)
