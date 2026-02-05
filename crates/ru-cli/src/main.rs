@@ -525,11 +525,9 @@ fn handle_config(action: ConfigAction) -> Result<()> {
 }
 
 async fn run_prompt(cli: Cli) -> Result<()> {
-    // Set verbose mode environment variable for API error logging
+    // Set verbose mode for API error logging
     if cli.verbose {
-        // SAFETY: This is called at startup before any threads are spawned,
-        // and we're only setting a flag used for logging verbosity
-        unsafe { std::env::set_var("RU_VERBOSE", "1") };
+        api::set_verbose(true);
     }
 
     let Some(prompt) = cli.prompt else {
