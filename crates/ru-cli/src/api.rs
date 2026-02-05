@@ -513,7 +513,10 @@ mod tests {
     #[test]
     fn test_strip_code_blocks_multiline() {
         let input = "```bash\necho one\necho two\necho three\n```";
-        assert_eq!(strip_code_blocks(input.to_string()), "echo one\necho two\necho three");
+        assert_eq!(
+            strip_code_blocks(input.to_string()),
+            "echo one\necho two\necho three"
+        );
     }
 
     #[test]
@@ -615,7 +618,6 @@ mod tests {
         assert!(prompt.contains("zsh"));
         assert!(prompt.contains("zsh-specific"));
     }
-
 
     #[test]
     fn test_build_explainer_prompt_per_shell() {
