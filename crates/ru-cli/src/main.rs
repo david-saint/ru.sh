@@ -541,17 +541,17 @@ async fn run_prompt(cli: Cli) -> Result<()> {
         bail!("Invalid prompt: {}", e);
     }
 
+    // Load config once
+    let config = Config::load()?;
+
     // Resolve API key: CLI flag > env var > config file
-    let api_key = resolve_api_key(cli.api_key)?;
+    let api_key = resolve_api_key(cli.api_key, &config)?;
 
     // Resolve model: CLI flag > config file > default
-    let model_id = resolve_model(cli.model_id, cli.model)?;
+    let model_id = resolve_model(cli.model_id, cli.model, &config)?;
 
     // Resolve shell: CLI flag > config file > auto-detect
-    let shell = resolve_shell(cli.shell)?;
-
-    // Load config for limits
-    let config = Config::load()?;
+    let shell = resolve_shell(cli.shell, &config)?;
 
     // Track usage and check limits
     let usage_warnings = usage::track_usage(config.get_daily_limit(), config.get_monthly_limit())?;
@@ -957,10 +957,9 @@ fn log_execution(
 }
 
 /// Resolve API key from: CLI flag > env var > config file
-fn resolve_api_key(cli_key: Option<String>) -> Result<String> {
+fn resolve_api_key(cli_key: Option<String>, config: &Config) -> Result<String> {
     let env_key = env::var("OPENROUTER_API_KEY").ok();
-    let config = Config::load()?;
-    let config_key = config.api_key;
+    let config_key = config.api_key.clone();
 
     if let Some(key) = determine_api_key(cli_key, env_key, config_key) {
         return Ok(key);
@@ -991,14 +990,13 @@ fn determine_api_key(
 }
 
 /// Resolve shell from: CLI flag > config file > auto-detect
-fn resolve_shell(cli_shell: Option<String>) -> Result<Shell> {
+fn resolve_shell(cli_shell: Option<String>, config: &Config) -> Result<Shell> {
     // CLI flag takes highest priority
     if let Some(shell_str) = cli_shell {
         return shell_str.parse::<Shell>().map_err(|e| anyhow::anyhow!(e));
     }
 
     // Config file takes next priority
-    let config = Config::load()?;
     if let Some(shell_str) = config.get_shell() {
         return shell_str.parse::<Shell>().map_err(|e| anyhow::anyhow!(e));
     }
@@ -1008,20 +1006,27 @@ fn resolve_shell(cli_shell: Option<String>) -> Result<Shell> {
 }
 
 /// Resolve model from: CLI model-id > CLI preset > config
-fn resolve_model(cli_model_id: Option<String>, cli_preset: Option<String>) -> Result<String> {
+fn resolve_model(
+    cli_model_id: Option<String>,
+    cli_preset: Option<String>,
+    config: &Config,
+) -> Result<String> {
     // CLI model-id takes highest priority
     if let Some(model_id) = cli_model_id {
         return Ok(model_id);
     }
 
-    // Load config for both preset lookup and custom overrides
-    let mut config = Config::load()?;
-
-    // CLI preset takes next priority (but still respects user's custom model for that preset)
+    // CLI preset takes next priority
     if let Some(preset_str) = cli_preset {
         let preset: ModelPreset = preset_str.parse().map_err(|e: String| anyhow::anyhow!(e))?;
-        config.set_model_preset(preset);
-        return Ok(config.get_model_id().to_string());
+
+        // Check for user-configured preset override in the config
+        if let Some(custom_preset_model) = config.get_preset_model(&preset) {
+            return Ok(custom_preset_model.to_string());
+        }
+
+        // Fall back to built-in default for that preset
+        return Ok(Config::get_default_model_id(&preset).to_string());
     }
 
     // Fall back to config file settings
@@ -1305,14 +1310,20 @@ mod tests {
     #[test]
     fn test_resolve_model_cli_model_id() {
         // CLI model-id takes priority
-        let result = resolve_model(Some("custom/model".to_string()), Some("fast".to_string()));
+        let config = Config::default();
+        let result = resolve_model(
+            Some("custom/model".to_string()),
+            Some("fast".to_string()),
+            &config,
+        );
         assert_eq!(result.unwrap(), "custom/model");
     }
 
     #[test]
     fn test_resolve_model_cli_preset() {
         // CLI preset when no model-id
-        let result = resolve_model(None, Some("fast".to_string()));
+        let config = Config::default();
+        let result = resolve_model(None, Some("fast".to_string()), &config);
         assert!(result.is_ok());
         // Should return the fast preset model
         let model = result.unwrap();
@@ -1322,7 +1333,8 @@ mod tests {
     #[test]
     fn test_resolve_model_default() {
         // Default when nothing specified
-        let result = resolve_model(None, None);
+        let config = Config::default();
+        let result = resolve_model(None, None, &config);
         assert!(result.is_ok());
         // Should return standard preset model
         let model = result.unwrap();
@@ -1331,7 +1343,8 @@ mod tests {
 
     #[test]
     fn test_resolve_model_invalid_preset() {
-        let result = resolve_model(None, Some("invalid".to_string()));
+        let config = Config::default();
+        let result = resolve_model(None, Some("invalid".to_string()), &config);
         assert!(result.is_err());
     }
 
@@ -1378,23 +1391,26 @@ mod tests {
 
     #[test]
     fn test_resolve_shell_cli_flag() {
-        let result = resolve_shell(Some("bash".to_string()));
+        let config = Config::default();
+        let result = resolve_shell(Some("bash".to_string()), &config);
         assert_eq!(result.unwrap(), Shell::Bash);
 
-        let result = resolve_shell(Some("powershell".to_string()));
+        let result = resolve_shell(Some("powershell".to_string()), &config);
         assert_eq!(result.unwrap(), Shell::PowerShell);
     }
 
     #[test]
     fn test_resolve_shell_invalid() {
-        let result = resolve_shell(Some("invalid_shell".to_string()));
+        let config = Config::default();
+        let result = resolve_shell(Some("invalid_shell".to_string()), &config);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_resolve_shell_auto_detect() {
         // When no CLI flag, should auto-detect without error
-        let result = resolve_shell(None);
+        let config = Config::default();
+        let result = resolve_shell(None, &config);
         assert!(result.is_ok());
     }
 
