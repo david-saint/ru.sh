@@ -626,7 +626,7 @@ fn Footer() -> impl IntoView {
                 <div class="w-4 h-4 bg-white/10 flex items-center justify-center text-[10px] text-white hover:bg-amber-500/50 transition-colors duration-300">
                     "R"
                 </div>
-                <span>"ru.sh cli © 2024"</span>
+                <span>"ru.sh © 2026"</span>
             </div>
 
             <div class="flex gap-8">
