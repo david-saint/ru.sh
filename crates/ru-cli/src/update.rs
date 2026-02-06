@@ -10,8 +10,7 @@ use tokio::task::JoinHandle;
 
 use crate::config::Config;
 
-const GITHUB_RELEASES_URL: &str =
-    "https://api.github.com/repos/david-saint/ru.sh/releases/latest";
+const GITHUB_RELEASES_URL: &str = "https://api.github.com/repos/david-saint/ru.sh/releases/latest";
 
 const CHECK_INTERVAL_SECS: i64 = 24 * 60 * 60; // 24 hours
 
@@ -170,17 +169,17 @@ async fn fetch_latest_release() -> Result<GitHubRelease> {
     let client = crate::api::http_client();
     let resp = client
         .get(GITHUB_RELEASES_URL)
-        .header("User-Agent", format!("ru-cli/{}", env!("CARGO_PKG_VERSION")))
+        .header(
+            "User-Agent",
+            format!("ru-cli/{}", env!("CARGO_PKG_VERSION")),
+        )
         .header("Accept", "application/vnd.github+json")
         .send()
         .await
         .context("Failed to reach GitHub API")?;
 
     if !resp.status().is_success() {
-        bail!(
-            "GitHub API returned status {}",
-            resp.status().as_u16()
-        );
+        bail!("GitHub API returned status {}", resp.status().as_u16());
     }
 
     resp.json::<GitHubRelease>()
@@ -196,7 +195,10 @@ async fn fetch_latest_release() -> Result<GitHubRelease> {
 async fn check_for_update() -> Result<Option<String>> {
     let current = env!("CARGO_PKG_VERSION");
     let release = fetch_latest_release().await?;
-    let latest = release.tag_name.strip_prefix('v').unwrap_or(&release.tag_name);
+    let latest = release
+        .tag_name
+        .strip_prefix('v')
+        .unwrap_or(&release.tag_name);
 
     let mut state = UpdateState::load();
     state.last_check = Some(Utc::now());
@@ -265,10 +267,7 @@ pub async fn perform_update() -> Result<()> {
     state.save();
 
     if !is_newer(current, latest) {
-        println!(
-            "{}",
-            format!("Already up to date (v{}).", current).green()
-        );
+        println!("{}", format!("Already up to date (v{}).", current).green());
         return Ok(());
     }
 
@@ -280,7 +279,9 @@ pub async fn perform_update() -> Result<()> {
     // Find the right asset for this platform
     let triple = target_triple();
     if triple == "unsupported" {
-        bail!("Auto-update is not supported on this platform. Please download manually from:\nhttps://github.com/david-saint/ru.sh/releases/latest");
+        bail!(
+            "Auto-update is not supported on this platform. Please download manually from:\nhttps://github.com/david-saint/ru.sh/releases/latest"
+        );
     }
     let ext = archive_ext();
     let version = latest;
@@ -304,10 +305,7 @@ pub async fn perform_update() -> Result<()> {
         })?;
 
     // Also find SHA256SUMS
-    let checksums_asset = release
-        .assets
-        .iter()
-        .find(|a| a.name == "SHA256SUMS");
+    let checksums_asset = release.assets.iter().find(|a| a.name == "SHA256SUMS");
 
     // Download the archive
     eprintln!("{}", format!("Downloading {}...", archive_name).dimmed());
@@ -322,19 +320,21 @@ pub async fn perform_update() -> Result<()> {
     } else {
         eprintln!(
             "{}",
-            "Warning: SHA256SUMS not found in release, skipping checksum verification."
-                .yellow()
+            "Warning: SHA256SUMS not found in release, skipping checksum verification.".yellow()
         );
     }
 
     // Extract and self-replace
-    let binary_path = std::env::current_exe().context("Could not determine current executable path")?;
+    let binary_path =
+        std::env::current_exe().context("Could not determine current executable path")?;
 
     extract_and_replace(&archive_bytes, &binary_path, ext)?;
 
     println!(
         "{}",
-        format!("Successfully updated to v{}!", version).green().bold()
+        format!("Successfully updated to v{}!", version)
+            .green()
+            .bold()
     );
 
     Ok(())
@@ -345,7 +345,10 @@ async fn download_asset(url: &str) -> Result<Vec<u8>> {
     let client = crate::api::http_client();
     let resp = client
         .get(url)
-        .header("User-Agent", format!("ru-cli/{}", env!("CARGO_PKG_VERSION")))
+        .header(
+            "User-Agent",
+            format!("ru-cli/{}", env!("CARGO_PKG_VERSION")),
+        )
         .send()
         .await
         .context("Failed to download asset")?;
@@ -365,7 +368,10 @@ async fn download_asset_text(url: &str) -> Result<String> {
     let client = crate::api::http_client();
     let resp = client
         .get(url)
-        .header("User-Agent", format!("ru-cli/{}", env!("CARGO_PKG_VERSION")))
+        .header(
+            "User-Agent",
+            format!("ru-cli/{}", env!("CARGO_PKG_VERSION")),
+        )
         .send()
         .await
         .context("Failed to download checksums")?;
@@ -646,10 +652,16 @@ mod tests {
     #[test]
     fn test_verify_checksum_mismatch() {
         let data = b"hello world";
-        let sums_text = "0000000000000000000000000000000000000000000000000000000000000000  test-file.tar.gz\n";
+        let sums_text =
+            "0000000000000000000000000000000000000000000000000000000000000000  test-file.tar.gz\n";
         let result = verify_checksum(data, "test-file.tar.gz", sums_text);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Checksum mismatch"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Checksum mismatch")
+        );
     }
 
     #[test]
@@ -658,7 +670,12 @@ mod tests {
         let sums_text = "abcdef1234567890  other-file.tar.gz\n";
         let result = verify_checksum(data, "test-file.tar.gz", sums_text);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("No checksum entry"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("No checksum entry")
+        );
     }
 
     #[test]

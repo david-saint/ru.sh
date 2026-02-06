@@ -728,10 +728,10 @@ async fn run_prompt(cli: Cli) -> Result<()> {
     }
 
     // Print update notification if a newer version was found
-    if let Some(handle) = update_handle {
-        if let Ok(Some(new_version)) = handle.await {
-            update::print_update_notification(&new_version);
-        }
+    if let Some(handle) = update_handle
+        && let Ok(Some(new_version)) = handle.await
+    {
+        update::print_update_notification(&new_version);
     }
 
     Ok(())
