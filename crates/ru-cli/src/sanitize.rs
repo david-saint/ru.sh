@@ -1,9 +1,20 @@
+use std::borrow::Cow;
+
 /// Sanitize a string for safe terminal display by removing/escaping
 /// control characters and ANSI escape sequences.
 ///
 /// This prevents terminal injection attacks where malicious scripts
 /// use escape sequences to hide dangerous commands.
-pub fn for_display(input: &str) -> String {
+pub fn for_display(input: &str) -> Cow<'_, str> {
+    // Fast path: if no control characters (except \n and \t) are present,
+    // we can return the input string directly without allocation.
+    if input
+        .chars()
+        .all(|c| !c.is_ascii_control() || c == '\n' || c == '\t')
+    {
+        return Cow::Borrowed(input);
+    }
+
     let mut result = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
 
@@ -42,7 +53,7 @@ pub fn for_display(input: &str) -> String {
             c => result.push(c),
         }
     }
-    result
+    Cow::Owned(result)
 }
 
 #[cfg(test)]
@@ -53,30 +64,36 @@ mod tests {
     fn test_preserves_normal_script() {
         let input = "echo 'hello world'\nls -la";
         assert_eq!(for_display(input), input);
+        // Verify it returns Borrowed
+        assert!(matches!(for_display(input), Cow::Borrowed(_)));
     }
 
     #[test]
     fn test_preserves_tabs() {
         let input = "if true; then\n\techo 'yes'\nfi";
         assert_eq!(for_display(input), input);
+        assert!(matches!(for_display(input), Cow::Borrowed(_)));
     }
 
     #[test]
     fn test_escapes_carriage_return() {
         let input = "safe\rmalicious";
         assert_eq!(for_display(input), "safe\\rmalicious");
+        assert!(matches!(for_display(input), Cow::Owned(_)));
     }
 
     #[test]
     fn test_escapes_backspace() {
         let input = "visible\x08hidden";
         assert_eq!(for_display(input), "visible\\bhidden");
+        assert!(matches!(for_display(input), Cow::Owned(_)));
     }
 
     #[test]
     fn test_strips_ansi_clear_line() {
         let input = "visible\x1b[2Khidden";
         assert_eq!(for_display(input), "visiblehidden");
+        assert!(matches!(for_display(input), Cow::Owned(_)));
     }
 
     #[test]
@@ -106,6 +123,7 @@ mod tests {
     fn test_preserves_utf8() {
         let input = "echo '你好世界'";
         assert_eq!(for_display(input), input);
+        assert!(matches!(for_display(input), Cow::Borrowed(_)));
     }
 
     #[test]
