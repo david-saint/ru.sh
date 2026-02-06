@@ -1030,7 +1030,10 @@ mod tests {
     fn test_analyze_critical_rm_rf_root_bypass_attempt() {
         // This detects if the " # comment" suffix bypasses the regex
         let report = analyze_script("rm -rf / # comment", &Shell::Bash);
-        assert_eq!(report.overall_risk, RiskLevel::Critical, "rm -rf / # comment should be Critical");
+        assert_eq!(
+            report.overall_risk,
+            RiskLevel::Critical,
+            "rm -rf / # comment should be Critical"
+        );
     }
-
 }
