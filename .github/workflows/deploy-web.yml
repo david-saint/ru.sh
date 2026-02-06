@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "crates/ru-web/**"
+      - "wrangler.toml"
       - ".github/workflows/deploy-web.yml"
   workflow_dispatch:
 
