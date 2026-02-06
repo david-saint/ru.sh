@@ -510,6 +510,13 @@ fn extract_and_replace(archive_bytes: &[u8], binary_path: &PathBuf, ext: &str) -
 }
 
 /// Atomically replace the binary at `target` with `source`.
+///
+/// On Unix: copy new binary to a temp file in the same dir, rename current
+/// binary to backup, rename new binary into place (same-fs rename = atomic).
+///
+/// On Windows: the OS locks running executables against deletion/overwrite,
+/// but *does* allow renaming them.  So we rename the running binary to a
+/// backup name first, then copy the new binary to the original path.
 fn self_replace(source: &PathBuf, target: &PathBuf) -> Result<()> {
     let target_dir = target
         .parent()
@@ -518,7 +525,9 @@ fn self_replace(source: &PathBuf, target: &PathBuf) -> Result<()> {
     let tmp_new = target_dir.join(".ru-update-new");
     let backup = target_dir.join(".ru-update-backup");
 
-    // Clean up any leftover files from a previous failed update
+    // Clean up any leftover files from a previous failed update.
+    // On Windows the backup may still be present from the previous run
+    // (we can delete it now because it's no longer the running process).
     let _ = fs::remove_file(&tmp_new);
     let _ = fs::remove_file(&backup);
 
@@ -533,13 +542,20 @@ fn self_replace(source: &PathBuf, target: &PathBuf) -> Result<()> {
         fs::set_permissions(&tmp_new, perms).context("Failed to set executable permissions")?;
     }
 
-    // Move current binary to backup
+    // Rename current (running) binary to backup.
+    // Windows allows renaming a running executable; it just forbids
+    // deleting or overwriting it in place.
     if let Err(e) = fs::rename(target, &backup) {
-        // Permission error — suggest sudo
         let _ = fs::remove_file(&tmp_new);
         if e.kind() == std::io::ErrorKind::PermissionDenied {
+            #[cfg(unix)]
             bail!(
                 "Permission denied when updating {}. Try: sudo ru update",
+                target.display()
+            );
+            #[cfg(not(unix))]
+            bail!(
+                "Permission denied when updating {}. Try running your terminal as Administrator.",
                 target.display()
             );
         }
@@ -554,7 +570,9 @@ fn self_replace(source: &PathBuf, target: &PathBuf) -> Result<()> {
         return Err(e).context("Failed to move new binary into place");
     }
 
-    // Clean up backup
+    // Clean up backup.  On Windows this will fail because the backup *is*
+    // the still-running executable — that's fine, we'll clean it up on the
+    // next update invocation (see cleanup above).
     let _ = fs::remove_file(&backup);
 
     Ok(())
