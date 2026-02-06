@@ -4,6 +4,7 @@ mod history;
 mod safety;
 mod sanitize;
 mod shell;
+mod update;
 mod usage;
 
 use anyhow::{Context, Result, bail};
@@ -70,6 +71,8 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// Update ru to the latest version
+    Update,
 }
 
 #[derive(Subcommand, Debug)]
@@ -103,6 +106,7 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Some(Commands::Config { action }) => handle_config(action),
+        Some(Commands::Update) => update::perform_update().await,
         None => run_prompt(cli).await,
     }
 }
@@ -525,6 +529,9 @@ fn handle_config(action: ConfigAction) -> Result<()> {
 }
 
 async fn run_prompt(cli: Cli) -> Result<()> {
+    // Spawn a background update check (non-blocking, throttled to once/24h)
+    let update_handle = update::spawn_background_check();
+
     // Set verbose mode for API error logging
     if cli.verbose {
         api::set_verbose(true);
@@ -718,6 +725,13 @@ async fn run_prompt(cli: Cli) -> Result<()> {
             exit_code,
             Some(api_duration_ms),
         );
+    }
+
+    // Print update notification if a newer version was found
+    if let Some(handle) = update_handle
+        && let Ok(Some(new_version)) = handle.await
+    {
+        update::print_update_notification(&new_version);
     }
 
     Ok(())
