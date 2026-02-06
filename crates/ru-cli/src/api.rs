@@ -4,9 +4,17 @@ use anyhow::{Context, Result, bail};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 const OPENROUTER_API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
+
+static VERBOSE: AtomicBool = AtomicBool::new(false);
+
+/// Set verbosity level
+pub fn set_verbose(verbose: bool) {
+    VERBOSE.store(verbose, Ordering::Relaxed);
+}
 
 // Timeout configuration
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -300,7 +308,7 @@ fn classify_api_error(status: StatusCode, error_text: &str) -> (String, String) 
 
 /// Log debug details if verbose mode is enabled
 fn log_verbose(details: &str) {
-    if std::env::var("RU_VERBOSE").is_ok() {
+    if VERBOSE.load(Ordering::Relaxed) {
         eprintln!("[DEBUG] {}", details);
     }
 }
