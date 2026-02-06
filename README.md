@@ -2,8 +2,8 @@
 
 > **Natural Language to Bash Scripts** 🚀
 
-[![CI](https://github.com/saint/ru.sh/actions/workflows/ci.yml/badge.svg)](https://github.com/saint/ru.sh/actions/workflows/ci.yml)
-[![Release](https://github.com/saint/ru.sh/actions/workflows/release.yml/badge.svg)](https://github.com/saint/ru.sh/actions/workflows/release.yml)
+[![CI](https://github.com/david-saint/ru.sh/actions/workflows/ci.yml/badge.svg)](https://github.com/david-saint/ru.sh/actions/workflows/ci.yml)
+[![Release](https://github.com/david-saint/ru.sh/actions/workflows/release.yml/badge.svg)](https://github.com/david-saint/ru.sh/actions/workflows/release.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 **ru.sh** is a powerful command-line tool that turns your plain English requests into executable bash scripts using AI. Stop memorizing obscure flags and complex syntax—just say what you want, review the generated script, and run it.
