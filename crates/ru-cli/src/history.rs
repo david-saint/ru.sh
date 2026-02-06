@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -129,14 +130,18 @@ fn rotate_history(path: &PathBuf) -> Result<()> {
         .with_context(|| format!("Failed to open history file: {}", path.display()))?;
 
     let reader = BufReader::new(file);
-    let lines: Vec<String> = reader.lines().collect::<Result<Vec<_>, _>>()?;
 
-    // Keep only the most recent entries
-    let to_keep = if lines.len() > ENTRIES_TO_KEEP {
-        &lines[lines.len() - ENTRIES_TO_KEEP..]
-    } else {
-        &lines[..]
-    };
+    // Use a VecDeque as a ring buffer to store only the last ENTRIES_TO_KEEP lines
+    // This optimization avoids loading the entire history file into memory
+    let mut lines = VecDeque::with_capacity(ENTRIES_TO_KEEP);
+
+    for line in reader.lines() {
+        let line = line?;
+        if lines.len() == ENTRIES_TO_KEEP {
+            lines.pop_front();
+        }
+        lines.push_back(line);
+    }
 
     // Write the truncated history with restricted permissions (0600 on Unix)
     #[cfg(unix)]
@@ -155,7 +160,7 @@ fn rotate_history(path: &PathBuf) -> Result<()> {
     let mut file = File::create(path)
         .with_context(|| format!("Failed to truncate history file: {}", path.display()))?;
 
-    for line in to_keep {
+    for line in lines {
         writeln!(file, "{}", line)?;
     }
 
@@ -305,6 +310,45 @@ mod tests {
         assert!(content.contains("echo 1499"));
         assert!(content.contains("echo 500"));
         assert!(!content.contains("\"script_preview\":\"echo 0\""));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_rotation_memory_optimization() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let history_file = temp_dir.path().join("history.jsonl");
+
+        // Create a large file (approx 15MB)
+        // Each record is roughly 200 bytes
+        // 75,000 records * 200 bytes = 15MB
+        let mut file = File::create(&history_file)?;
+
+        // Write in chunks to speed up test setup
+        let record = ExecutionRecord::new(
+            "test prompt",
+            "echo test",
+            RiskLevel::Safe,
+            true,
+            Some(0),
+            Some(100),
+        );
+        let line = format!("{}\n", serde_json::to_string(&record)?);
+
+        for _ in 0..75_000 {
+            file.write_all(line.as_bytes())?;
+        }
+        drop(file);
+
+        let start = std::time::Instant::now();
+        rotate_history(&history_file)?;
+        let duration = start.elapsed();
+
+        println!("Rotation took: {:?}", duration);
+
+        // Verify we only have ENTRIES_TO_KEEP
+        let content = fs::read_to_string(&history_file)?;
+        assert_eq!(content.lines().count(), ENTRIES_TO_KEEP);
 
         Ok(())
     }
