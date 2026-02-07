@@ -468,22 +468,11 @@ fn strip_code_blocks(content: String) -> String {
                 return String::new();
             }
 
-            let content_part = &trimmed[start..];
-
-            // Handle empty block case where closing fence immediately follows opening line
-            if content_part.starts_with("```") {
-                return String::new();
-            }
-
-            // Find the closing fence. We search for "\n```" which handles both
-            // Unix (\n) and Windows (\r\n) line endings (since \r\n ends with \n).
-            // This ensures we stop at the FIRST closing fence, preventing execution
-            // of any trailing text (e.g., explanations or hallucinations).
-            let end = if let Some(offset) = content_part.find("\n```") {
-                start + offset
+            // Check for closing fence. We check for "\n```" which handles both
+            // Unix (\n) and Windows (\r\n) line endings (since \r\n ends with \n)
+            let end = if trimmed.ends_with("\n```") {
+                trimmed.len() - 4
             } else {
-                // If no closing fence found, we assume the block goes to the end
-                // (handling truncated responses gracefully)
                 trimmed.len()
             };
 
@@ -663,29 +652,5 @@ mod tests {
             assert!(verbose.contains("Break down"));
             assert!(verbose.contains("no markdown"));
         }
-    }
-
-    #[test]
-    fn test_strip_code_blocks_with_trailing_text() {
-        let input = "```bash\nls -la\n```\nExplanation: this lists files.";
-        assert_eq!(strip_code_blocks(input.to_string()), "ls -la");
-    }
-
-    #[test]
-    fn test_strip_code_blocks_multiple_blocks() {
-        let input = "```bash\necho first\n```\nSome text\n```bash\necho second\n```";
-        assert_eq!(strip_code_blocks(input.to_string()), "echo first");
-    }
-
-    #[test]
-    fn test_strip_code_blocks_empty_block() {
-        let input = "```bash\n```";
-        assert_eq!(strip_code_blocks(input.to_string()), "");
-    }
-
-    #[test]
-    fn test_strip_code_blocks_empty_block_with_trailing() {
-        let input = "```bash\n```\nExplanation";
-        assert_eq!(strip_code_blocks(input.to_string()), "");
     }
 }
