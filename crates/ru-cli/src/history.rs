@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 
 use crate::config::Config;
@@ -129,23 +129,42 @@ fn rotate_history(path: &PathBuf) -> Result<()> {
     let file = File::open(path)
         .with_context(|| format!("Failed to open history file: {}", path.display()))?;
 
-    let reader = BufReader::new(file);
+    let mut reader = BufReader::new(file);
 
     // Use a VecDeque as a ring buffer to store only the last ENTRIES_TO_KEEP lines
     // This optimization avoids loading the entire history file into memory
     let mut lines = VecDeque::with_capacity(ENTRIES_TO_KEEP);
+    let mut buffer = String::new();
 
-    for line in reader.lines() {
-        let line = line?;
-        if lines.len() == ENTRIES_TO_KEEP {
-            lines.pop_front();
+    loop {
+        buffer.clear();
+        match reader.read_line(&mut buffer) {
+            Ok(0) => break, // EOF
+            Ok(_) => {
+                // read_line includes the newline, strip it
+                if buffer.ends_with('\n') {
+                    buffer.pop();
+                    if buffer.ends_with('\r') {
+                        buffer.pop();
+                    }
+                }
+
+                if lines.len() == ENTRIES_TO_KEEP {
+                    let old = lines.pop_front().unwrap();
+                    lines.push_back(buffer);
+                    buffer = old; // Reuse allocation
+                } else {
+                    lines.push_back(buffer);
+                    buffer = String::new();
+                }
+            }
+            Err(e) => return Err(e).context("Failed to read line from history"),
         }
-        lines.push_back(line);
     }
 
     // Write the truncated history with restricted permissions (0600 on Unix)
     #[cfg(unix)]
-    let mut file = {
+    let file = {
         use std::os::unix::fs::OpenOptionsExt;
         OpenOptions::new()
             .write(true)
@@ -157,12 +176,16 @@ fn rotate_history(path: &PathBuf) -> Result<()> {
     };
 
     #[cfg(not(unix))]
-    let mut file = File::create(path)
+    let file = File::create(path)
         .with_context(|| format!("Failed to truncate history file: {}", path.display()))?;
 
+    // Use BufWriter to minimize syscalls during write
+    let mut writer = BufWriter::new(file);
+
     for line in lines {
-        writeln!(file, "{}", line)?;
+        writeln!(writer, "{}", line)?;
     }
+    writer.flush()?;
 
     Ok(())
 }
