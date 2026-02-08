@@ -1256,14 +1256,7 @@ async fn execute_script(
 fn configure_child_for_timeout(cmd: &mut tokio::process::Command) {
     // Place the spawned shell in its own process group so timeout cleanup
     // can terminate the full subtree, not just the shell parent.
-    unsafe {
-        cmd.pre_exec(|| {
-            if libc::setpgid(0, 0) == -1 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
+    cmd.process_group(0);
 }
 
 #[cfg(not(unix))]
