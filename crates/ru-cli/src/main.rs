@@ -237,12 +237,8 @@ fn handle_config(action: ConfigAction) -> Result<()> {
             match key.as_str() {
                 "api-key" | "api_key" => {
                     if let Some(api_key) = config.get_api_key() {
-                        // Show only first/last few chars for security
-                        let masked = if api_key.len() > 12 {
-                            format!("{}...{}", &api_key[..6], &api_key[api_key.len() - 4..])
-                        } else {
-                            "[set]".to_string()
-                        };
+                        // Show only first/last few chars for security.
+                        let masked = mask_api_key_for_display(&api_key);
                         println!("api-key: {}", masked);
                     } else {
                         println!("{}", "api-key: not set".dimmed());
@@ -1010,6 +1006,44 @@ fn determine_api_key(
     cli_key.or(env_key.filter(|k| !k.is_empty())).or(config_key)
 }
 
+/// Mask an API key for display in config output.
+fn mask_api_key_for_display(api_key: &str) -> String {
+    const MASK_THRESHOLD_CHARS: usize = 12;
+    const PREFIX_CHARS: usize = 6;
+    const SUFFIX_CHARS: usize = 4;
+
+    if api_key.chars().count() <= MASK_THRESHOLD_CHARS {
+        return "[set]".to_string();
+    }
+
+    let prefix_end = byte_index_after_n_chars(api_key, PREFIX_CHARS);
+    let suffix_start = byte_index_before_last_n_chars(api_key, SUFFIX_CHARS);
+    format!("{}...{}", &api_key[..prefix_end], &api_key[suffix_start..])
+}
+
+fn byte_index_after_n_chars(s: &str, n: usize) -> usize {
+    if n == 0 {
+        return 0;
+    }
+    s.char_indices()
+        .nth(n)
+        .map(|(idx, _)| idx)
+        .unwrap_or(s.len())
+}
+
+fn byte_index_before_last_n_chars(s: &str, n: usize) -> usize {
+    if n == 0 {
+        return s.len();
+    }
+
+    for (count, (idx, _)) in s.char_indices().rev().enumerate() {
+        if count + 1 == n {
+            return idx;
+        }
+    }
+    0
+}
+
 /// Resolve shell from: CLI flag > config file > auto-detect
 fn resolve_shell(cli_shell: Option<String>, config: &Config) -> Result<Shell> {
     // CLI flag takes highest priority
@@ -1382,6 +1416,24 @@ mod tests {
 
         // None
         assert_eq!(determine_api_key(None, None, None), None);
+    }
+
+    #[test]
+    fn test_mask_api_key_for_display_ascii_long() {
+        let key = "abcdefghijklmnopqrstuvwxyz";
+        assert_eq!(mask_api_key_for_display(key), "abcdef...wxyz");
+    }
+
+    #[test]
+    fn test_mask_api_key_for_display_multibyte_short() {
+        let key = "你好世界啊";
+        assert_eq!(mask_api_key_for_display(key), "[set]");
+    }
+
+    #[test]
+    fn test_mask_api_key_for_display_multibyte_long() {
+        let key = "🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂";
+        assert_eq!(mask_api_key_for_display(key), "🙂🙂🙂🙂🙂🙂...🙂🙂🙂🙂");
     }
 
     #[test]
