@@ -1109,15 +1109,19 @@ async fn execute_script(
     timeout_secs: u64,
     shell: &Shell,
 ) -> Result<Option<i32>> {
+    use tokio::io::AsyncReadExt;
     use tokio::process::Command as TokioCommand;
+    use tokio::task::JoinHandle;
     use tokio::time::{Duration, timeout};
 
     // Verify script integrity (defense-in-depth against TOCTOU)
     if let Some(hash) = expected_hash {
-        debug_assert!(
-            compute_script_hash(script) == hash,
-            "Script integrity check failed - script may have been modified between analysis and execution"
-        );
+        let actual = compute_script_hash(script);
+        if actual != hash {
+            bail!(
+                "Script integrity check failed - script may have been modified between analysis and execution"
+            );
+        }
     }
 
     println!("{}", "Executing...".green().bold());
@@ -1130,30 +1134,55 @@ async fn execute_script(
         cmd.arg(arg);
     }
     cmd.arg(script);
+    configure_child_for_timeout(&mut cmd);
 
-    let child = cmd
+    let mut child = cmd
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
         .with_context(|| format!("Failed to spawn {} process", shell.display_name()))?;
 
-    let result = timeout(timeout_duration, child.wait_with_output()).await;
+    let stdout = child
+        .stdout
+        .take()
+        .context("Failed to capture child stdout")?;
+    let stderr = child
+        .stderr
+        .take()
+        .context("Failed to capture child stderr")?;
+
+    let stdout_task: JoinHandle<std::io::Result<Vec<u8>>> = tokio::spawn(async move {
+        let mut reader = stdout;
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf).await?;
+        Ok(buf)
+    });
+    let stderr_task: JoinHandle<std::io::Result<Vec<u8>>> = tokio::spawn(async move {
+        let mut reader = stderr;
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf).await?;
+        Ok(buf)
+    });
+
+    let result = timeout(timeout_duration, child.wait()).await;
 
     match result {
-        Ok(Ok(output)) => {
+        Ok(Ok(status)) => {
+            let stdout = join_output_task(stdout_task, "stdout").await?;
+            let stderr = join_output_task(stderr_task, "stderr").await?;
             let duration = start.elapsed();
 
-            if !output.stdout.is_empty() {
-                println!("{}", String::from_utf8_lossy(&output.stdout));
+            if !stdout.is_empty() {
+                println!("{}", String::from_utf8_lossy(&stdout));
             }
 
-            if !output.stderr.is_empty() {
-                eprintln!("{}", String::from_utf8_lossy(&output.stderr).red());
+            if !stderr.is_empty() {
+                eprintln!("{}", String::from_utf8_lossy(&stderr).red());
             }
 
-            let exit_code = output.status.code();
+            let exit_code = status.code();
 
-            if output.status.success() {
+            if status.success() {
                 println!(
                     "{}",
                     format!(
@@ -1172,9 +1201,43 @@ async fn execute_script(
             Ok(exit_code)
         }
         Ok(Err(e)) => {
+            let _ = terminate_script_process(&mut child).await;
+            let _ = join_output_task(stdout_task, "stdout").await;
+            let _ = join_output_task(stderr_task, "stderr").await;
             bail!("Failed to execute script: {}", e);
         }
         Err(_) => {
+            terminate_script_process(&mut child).await;
+
+            // Best-effort: capture any partial output before returning timeout.
+            let stdout = match join_output_task(stdout_task, "stdout").await {
+                Ok(buf) => buf,
+                Err(e) => {
+                    eprintln!(
+                        "{}",
+                        format!("Warning: Failed to capture stdout after timeout: {}", e).dimmed()
+                    );
+                    Vec::new()
+                }
+            };
+            let stderr = match join_output_task(stderr_task, "stderr").await {
+                Ok(buf) => buf,
+                Err(e) => {
+                    eprintln!(
+                        "{}",
+                        format!("Warning: Failed to capture stderr after timeout: {}", e).dimmed()
+                    );
+                    Vec::new()
+                }
+            };
+
+            if !stdout.is_empty() {
+                println!("{}", String::from_utf8_lossy(&stdout));
+            }
+            if !stderr.is_empty() {
+                eprintln!("{}", String::from_utf8_lossy(&stderr).red());
+            }
+
             println!(
                 "{}",
                 format!(
@@ -1187,6 +1250,56 @@ async fn execute_script(
             bail!("Script execution timed out after {} seconds", timeout_secs);
         }
     }
+}
+
+#[cfg(unix)]
+fn configure_child_for_timeout(cmd: &mut tokio::process::Command) {
+    // Place the spawned shell in its own process group so timeout cleanup
+    // can terminate the full subtree, not just the shell parent.
+    unsafe {
+        cmd.pre_exec(|| {
+            if libc::setpgid(0, 0) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+}
+
+#[cfg(not(unix))]
+fn configure_child_for_timeout(_cmd: &mut tokio::process::Command) {}
+
+async fn join_output_task(
+    task: tokio::task::JoinHandle<std::io::Result<Vec<u8>>>,
+    stream_name: &str,
+) -> Result<Vec<u8>> {
+    task.await
+        .with_context(|| format!("Failed to join {} capture task", stream_name))?
+        .with_context(|| format!("Failed to read {} from child process", stream_name))
+}
+
+async fn terminate_script_process(child: &mut tokio::process::Child) {
+    #[cfg(unix)]
+    {
+        if let Some(pid) = child.id() {
+            // Kill the process group to ensure descendants started by the shell
+            // are also terminated when the timeout is reached.
+            let _ = unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        if let Some(pid) = child.id() {
+            let _ = tokio::process::Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .status()
+                .await;
+        }
+    }
+
+    let _ = child.kill().await;
+    let _ = child.wait().await;
 }
 
 /// Build a Select theme with bold active item styling.
@@ -1248,6 +1361,10 @@ unsafe fn libc_ioctl(fd: i32, request: libc::c_ulong, arg: *mut libc_winsize) ->
 
 /// Wrap a single line to fit within `max_width` columns, breaking at word boundaries when possible.
 fn wrap_line(line: &str, max_width: usize) -> Vec<&str> {
+    if max_width == 0 {
+        return vec![line];
+    }
+
     if line.len() <= max_width {
         return vec![line];
     }
@@ -1262,7 +1379,11 @@ fn wrap_line(line: &str, max_width: usize) -> Vec<&str> {
         }
 
         // Look for the last space within the width limit for a clean break
-        let end = start + max_width;
+        let mut end = floor_char_boundary(line, start + max_width);
+        if end == start {
+            // If the width lands inside a multi-byte character, advance by one char.
+            end = next_char_boundary(line, start).unwrap_or(line.len());
+        }
         let chunk = &line[start..end];
         if let Some(break_pos) = chunk.rfind(' ') {
             // Only break at space if it's not too far back (at least half the width)
@@ -1279,6 +1400,22 @@ fn wrap_line(line: &str, max_width: usize) -> Vec<&str> {
     }
 
     result
+}
+
+fn floor_char_boundary(s: &str, idx: usize) -> usize {
+    let mut i = idx.min(s.len());
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+fn next_char_boundary(s: &str, idx: usize) -> Option<usize> {
+    if idx >= s.len() || !s.is_char_boundary(idx) {
+        return None;
+    }
+    let ch = s[idx..].chars().next()?;
+    Some(idx + ch.len_utf8())
 }
 
 #[cfg(test)]
@@ -1401,6 +1538,63 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_execute_script_hash_mismatch_fails() {
+        let result = execute_script(
+            "echo 'hello world'",
+            Some("0000000000000000000000000000000000000000000000000000000000000000"),
+            config::DEFAULT_SCRIPT_TIMEOUT_SECS,
+            &Shell::Bash,
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Script integrity check failed")
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_execute_script_timeout_kills_background_child() {
+        use std::fs;
+        use std::process::{Command, Stdio};
+        use tempfile::TempDir;
+        use tokio::time::{Duration, sleep};
+
+        let tmp = TempDir::new().unwrap();
+        let pid_file = tmp.path().join("child.pid");
+        let script = format!("sleep 60 & echo $! > '{}'; wait", pid_file.display());
+
+        let result = execute_script(&script, None, 1, &Shell::Bash).await;
+        assert!(result.is_err());
+
+        // Wait briefly for the pid file to be written.
+        for _ in 0..20 {
+            if pid_file.exists() {
+                break;
+            }
+            sleep(Duration::from_millis(50)).await;
+        }
+
+        let pid = fs::read_to_string(&pid_file).unwrap().trim().to_string();
+
+        let alive = Command::new("kill")
+            .args(["-0", &pid])
+            .stderr(Stdio::null())
+            .status()
+            .unwrap()
+            .success();
+
+        assert!(
+            !alive,
+            "background child process {} is still alive after timeout",
+            pid
+        );
+    }
+
     #[test]
     fn test_resolve_shell_cli_flag() {
         let config = Config::default();
@@ -1439,5 +1633,23 @@ mod tests {
         let hash1 = compute_script_hash("echo hello");
         let hash2 = compute_script_hash("echo world");
         assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_wrap_line_utf8_boundary_safety() {
+        let line = "abc🙂def";
+        let wrapped = wrap_line(line, 4);
+        assert_eq!(wrapped, vec!["abc", "🙂", "def"]);
+    }
+
+    #[test]
+    fn test_wrap_line_utf8_with_spaces() {
+        let line = "run 你好 世界 now";
+        let wrapped = wrap_line(line, 8);
+        assert!(!wrapped.is_empty());
+        // Ensure we never split UTF-8 code points.
+        for part in wrapped {
+            assert!(std::str::from_utf8(part.as_bytes()).is_ok());
+        }
     }
 }
