@@ -628,7 +628,7 @@ pub fn check_syntax(script: &str, shell: &Shell) -> (bool, Option<String>) {
     }
 }
 
-/// Run a syntax check command, gracefully handling missing binaries
+/// Run a syntax check command.
 fn run_syntax_check(binary: &str, args: &[&str]) -> (bool, Option<String>) {
     let output = Command::new(binary).args(args).output();
 
@@ -646,10 +646,13 @@ fn run_syntax_check(binary: &str, args: &[&str]) -> (bool, Option<String>) {
                 (false, Some(error))
             }
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            // Shell binary not found — skip syntax check gracefully
-            (true, None)
-        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (
+            false,
+            Some(format!(
+                "Shell binary '{}' not found; cannot validate script syntax",
+                binary
+            )),
+        ),
         Err(e) => (false, Some(format!("Failed to check syntax: {}", e))),
     }
 }
@@ -793,6 +796,14 @@ mod tests {
         let (valid, error) = check_syntax("any garbage here", &Shell::Cmd);
         assert!(valid);
         assert!(error.is_none());
+    }
+
+    #[test]
+    fn test_run_syntax_check_missing_binary_fails_closed() {
+        let (valid, error) = run_syntax_check("definitely-not-a-real-shell-binary-xyz", &["-n"]);
+        assert!(!valid);
+        assert!(error.is_some());
+        assert!(error.unwrap().contains("cannot validate script syntax"));
     }
 
     #[test]
