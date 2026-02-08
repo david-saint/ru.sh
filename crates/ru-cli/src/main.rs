@@ -237,12 +237,8 @@ fn handle_config(action: ConfigAction) -> Result<()> {
             match key.as_str() {
                 "api-key" | "api_key" => {
                     if let Some(api_key) = config.get_api_key() {
-                        // Show only first/last few chars for security
-                        let masked = if api_key.len() > 12 {
-                            format!("{}...{}", &api_key[..6], &api_key[api_key.len() - 4..])
-                        } else {
-                            "[set]".to_string()
-                        };
+                        // Show only first/last few chars for security.
+                        let masked = mask_api_key_for_display(api_key);
                         println!("api-key: {}", masked);
                     } else {
                         println!("{}", "api-key: not set".dimmed());
@@ -558,8 +554,8 @@ async fn run_prompt(cli: Cli) -> Result<()> {
     // Resolve shell: CLI flag > config file > auto-detect
     let shell = resolve_shell(cli.shell, &config)?;
 
-    // Track usage and check limits
-    let usage_warnings = usage::track_usage(config.get_daily_limit(), config.get_monthly_limit())?;
+    // Check usage limits before making an API request.
+    let usage_warnings = usage::check_usage(config.get_daily_limit(), config.get_monthly_limit())?;
     for warning in &usage_warnings {
         if warning.is_limit_exceeded {
             println!(
@@ -593,6 +589,14 @@ async fn run_prompt(cli: Cli) -> Result<()> {
     let start = Instant::now();
     let generated_script = api::generate_script(&prompt, &api_key, &model_id, &shell).await?;
     let api_duration_ms = start.elapsed().as_millis() as u64;
+
+    // Count only successful API requests toward usage.
+    if let Err(e) = usage::record_successful_request() {
+        eprintln!(
+            "{}",
+            format!("Warning: Failed to update usage counters: {}", e).dimmed()
+        );
+    }
 
     // Compute script hash for integrity verification (TOCTOU defense)
     let script_hash = compute_script_hash(&generated_script);
@@ -727,8 +731,9 @@ async fn run_prompt(cli: Cli) -> Result<()> {
         );
     }
 
-    // Print update notification if a newer version was found
+    // Print update notification only if the background check already finished.
     if let Some(handle) = update_handle
+        && handle.is_finished()
         && let Ok(Some(new_version)) = handle.await
     {
         update::print_update_notification(&new_version);
@@ -1001,6 +1006,44 @@ fn determine_api_key(
     cli_key.or(env_key.filter(|k| !k.is_empty())).or(config_key)
 }
 
+/// Mask an API key for display in config output.
+fn mask_api_key_for_display(api_key: &str) -> String {
+    const MASK_THRESHOLD_CHARS: usize = 12;
+    const PREFIX_CHARS: usize = 6;
+    const SUFFIX_CHARS: usize = 4;
+
+    if api_key.chars().count() <= MASK_THRESHOLD_CHARS {
+        return "[set]".to_string();
+    }
+
+    let prefix_end = byte_index_after_n_chars(api_key, PREFIX_CHARS);
+    let suffix_start = byte_index_before_last_n_chars(api_key, SUFFIX_CHARS);
+    format!("{}...{}", &api_key[..prefix_end], &api_key[suffix_start..])
+}
+
+fn byte_index_after_n_chars(s: &str, n: usize) -> usize {
+    if n == 0 {
+        return 0;
+    }
+    s.char_indices()
+        .nth(n)
+        .map(|(idx, _)| idx)
+        .unwrap_or(s.len())
+}
+
+fn byte_index_before_last_n_chars(s: &str, n: usize) -> usize {
+    if n == 0 {
+        return s.len();
+    }
+
+    for (count, (idx, _)) in s.char_indices().rev().enumerate() {
+        if count + 1 == n {
+            return idx;
+        }
+    }
+    0
+}
+
 /// Resolve shell from: CLI flag > config file > auto-detect
 fn resolve_shell(cli_shell: Option<String>, config: &Config) -> Result<Shell> {
     // CLI flag takes highest priority
@@ -1109,9 +1152,7 @@ async fn execute_script(
     timeout_secs: u64,
     shell: &Shell,
 ) -> Result<Option<i32>> {
-    use tokio::io::AsyncReadExt;
     use tokio::process::Command as TokioCommand;
-    use tokio::task::JoinHandle;
     use tokio::time::{Duration, timeout};
 
     // Verify script integrity (defense-in-depth against TOCTOU)
@@ -1137,48 +1178,16 @@ async fn execute_script(
     configure_child_for_timeout(&mut cmd);
 
     let mut child = cmd
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
         .spawn()
         .with_context(|| format!("Failed to spawn {} process", shell.display_name()))?;
-
-    let stdout = child
-        .stdout
-        .take()
-        .context("Failed to capture child stdout")?;
-    let stderr = child
-        .stderr
-        .take()
-        .context("Failed to capture child stderr")?;
-
-    let stdout_task: JoinHandle<std::io::Result<Vec<u8>>> = tokio::spawn(async move {
-        let mut reader = stdout;
-        let mut buf = Vec::new();
-        reader.read_to_end(&mut buf).await?;
-        Ok(buf)
-    });
-    let stderr_task: JoinHandle<std::io::Result<Vec<u8>>> = tokio::spawn(async move {
-        let mut reader = stderr;
-        let mut buf = Vec::new();
-        reader.read_to_end(&mut buf).await?;
-        Ok(buf)
-    });
 
     let result = timeout(timeout_duration, child.wait()).await;
 
     match result {
         Ok(Ok(status)) => {
-            let stdout = join_output_task(stdout_task, "stdout").await?;
-            let stderr = join_output_task(stderr_task, "stderr").await?;
             let duration = start.elapsed();
-
-            if !stdout.is_empty() {
-                println!("{}", String::from_utf8_lossy(&stdout));
-            }
-
-            if !stderr.is_empty() {
-                eprintln!("{}", String::from_utf8_lossy(&stderr).red());
-            }
 
             let exit_code = status.code();
 
@@ -1202,41 +1211,10 @@ async fn execute_script(
         }
         Ok(Err(e)) => {
             let _ = terminate_script_process(&mut child).await;
-            let _ = join_output_task(stdout_task, "stdout").await;
-            let _ = join_output_task(stderr_task, "stderr").await;
             bail!("Failed to execute script: {}", e);
         }
         Err(_) => {
             terminate_script_process(&mut child).await;
-
-            // Best-effort: capture any partial output before returning timeout.
-            let stdout = match join_output_task(stdout_task, "stdout").await {
-                Ok(buf) => buf,
-                Err(e) => {
-                    eprintln!(
-                        "{}",
-                        format!("Warning: Failed to capture stdout after timeout: {}", e).dimmed()
-                    );
-                    Vec::new()
-                }
-            };
-            let stderr = match join_output_task(stderr_task, "stderr").await {
-                Ok(buf) => buf,
-                Err(e) => {
-                    eprintln!(
-                        "{}",
-                        format!("Warning: Failed to capture stderr after timeout: {}", e).dimmed()
-                    );
-                    Vec::new()
-                }
-            };
-
-            if !stdout.is_empty() {
-                println!("{}", String::from_utf8_lossy(&stdout));
-            }
-            if !stderr.is_empty() {
-                eprintln!("{}", String::from_utf8_lossy(&stderr).red());
-            }
 
             println!(
                 "{}",
@@ -1261,15 +1239,6 @@ fn configure_child_for_timeout(cmd: &mut tokio::process::Command) {
 
 #[cfg(not(unix))]
 fn configure_child_for_timeout(_cmd: &mut tokio::process::Command) {}
-
-async fn join_output_task(
-    task: tokio::task::JoinHandle<std::io::Result<Vec<u8>>>,
-    stream_name: &str,
-) -> Result<Vec<u8>> {
-    task.await
-        .with_context(|| format!("Failed to join {} capture task", stream_name))?
-        .with_context(|| format!("Failed to read {} from child process", stream_name))
-}
 
 async fn terminate_script_process(child: &mut tokio::process::Child) {
     #[cfg(unix)]
@@ -1447,6 +1416,24 @@ mod tests {
 
         // None
         assert_eq!(determine_api_key(None, None, None), None);
+    }
+
+    #[test]
+    fn test_mask_api_key_for_display_ascii_long() {
+        let key = "abcdefghijklmnopqrstuvwxyz";
+        assert_eq!(mask_api_key_for_display(key), "abcdef...wxyz");
+    }
+
+    #[test]
+    fn test_mask_api_key_for_display_multibyte_short() {
+        let key = "你好世界啊";
+        assert_eq!(mask_api_key_for_display(key), "[set]");
+    }
+
+    #[test]
+    fn test_mask_api_key_for_display_multibyte_long() {
+        let key = "🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂";
+        assert_eq!(mask_api_key_for_display(key), "🙂🙂🙂🙂🙂🙂...🙂🙂🙂🙂");
     }
 
     #[test]
