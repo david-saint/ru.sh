@@ -12,3 +12,8 @@
 **Vulnerability:** The `strip_code_blocks` function extracted the entire content after the first opening fence ` ``` ` without stopping at the first closing fence. This allowed trailing text (e.g., "Explanation: ...") to be included in the script and executed, creating a potential RCE vulnerability if the LLM hallucinates commands in the explanation.
 **Learning:** LLM outputs are untrusted and unpredictable. When extracting structured data (like code blocks) from LLM responses, always strictly parse the delimiters and discard everything outside the expected structure. Do not assume the LLM will only output the requested format.
 **Prevention:** Use robust parsing logic that identifies both start and end delimiters of the desired content. Treat everything outside these delimiters as potentially malicious or garbage data and discard it.
+
+## 2025-05-27 - Regex Bypass via Immediate Comment
+**Vulnerability:** The regex for `rm -rf /` allowed bypassing detection by appending a comment character `#` immediately after the path (e.g., `rm -rf /#`), as `#` was not included in the terminator set `(\s|[;&|]|$)`.
+**Learning:** In shell, `#` can start a comment immediately after a token without whitespace. Security regexes must account for `#` as a terminator even without preceding whitespace.
+**Prevention:** Include `#` in the set of terminators: `(\s|[;&|#]|$)`.
