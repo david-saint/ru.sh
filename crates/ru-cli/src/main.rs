@@ -238,7 +238,7 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                 "api-key" | "api_key" => {
                     if let Some(api_key) = config.get_api_key() {
                         // Show only first/last few chars for security.
-                        let masked = mask_api_key_for_display(&api_key);
+                        let masked = mask_api_key_for_display(api_key);
                         println!("api-key: {}", masked);
                     } else {
                         println!("{}", "api-key: not set".dimmed());
