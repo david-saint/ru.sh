@@ -217,14 +217,14 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
 
         // === CRITICAL: System destruction ===
         DangerPattern {
-            pattern: r"rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+/(\s|[;&|]|$)",
+            pattern: r"rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+/(\s|[;&|#]|$)",
             level: RiskLevel::Critical,
             category: WarningCategory::SystemDestruction,
             description: "Removes the root filesystem - will destroy the system",
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            pattern: r"rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+/(home|etc|root|var|usr|boot|bin|sbin|lib|lib64)(/|\s|$)",
+            pattern: r"rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+/(home|etc|root|var|usr|boot|bin|sbin|lib|lib64)(/|\s|[;&|#]|$)",
             level: RiskLevel::Critical,
             category: WarningCategory::SystemDestruction,
             description: "Removes critical system directories",
@@ -1034,6 +1034,39 @@ mod tests {
             report.overall_risk,
             RiskLevel::Critical,
             "rm -rf / # comment should be Critical"
+        );
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_rf_root_no_space_comment() {
+        // This checks if "rm -rf /#" (no space before #) bypasses the regex
+        let report = analyze_script("rm -rf /# comment", &Shell::Bash);
+        assert_eq!(
+            report.overall_risk,
+            RiskLevel::Critical,
+            "rm -rf /# comment should be Critical"
+        );
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_rf_home_no_space_comment() {
+        // This checks if "rm -rf /home#" (no space before #) bypasses the regex
+        let report = analyze_script("rm -rf /home# comment", &Shell::Bash);
+        assert_eq!(
+            report.overall_risk,
+            RiskLevel::Critical,
+            "rm -rf /home# comment should be Critical"
+        );
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_rf_etc_separator() {
+        // This checks if "rm -rf /etc;" (semicolon separator) is caught
+        let report = analyze_script("rm -rf /etc;", &Shell::Bash);
+        assert_eq!(
+            report.overall_risk,
+            RiskLevel::Critical,
+            "rm -rf /etc; should be Critical"
         );
     }
 }
