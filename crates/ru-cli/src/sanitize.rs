@@ -1,5 +1,19 @@
 use std::borrow::Cow;
 
+fn is_invisible_or_bidi_char(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}' // Soft hyphen
+            | '\u{034F}' // Combining grapheme joiner
+            | '\u{061C}' // Arabic Letter Mark
+            | '\u{200B}'..='\u{200F}' // Zero-width + LRM/RLM
+            | '\u{202A}'..='\u{202E}' // BiDi embedding/override controls
+            | '\u{2060}'..='\u{2064}' // Word joiner + invisible operators
+            | '\u{2066}'..='\u{2069}' // BiDi isolate controls
+            | '\u{FEFF}' // Zero-width no-break space (BOM)
+    )
+}
+
 /// Sanitize a string for safe terminal display by removing/escaping
 /// control characters and ANSI escape sequences.
 ///
@@ -10,7 +24,7 @@ pub fn for_display(input: &str) -> Cow<'_, str> {
     // we can return the input string directly without allocation.
     if input
         .chars()
-        .all(|c| !c.is_ascii_control() || c == '\n' || c == '\t')
+        .all(|c| (!c.is_ascii_control() || c == '\n' || c == '\t') && !is_invisible_or_bidi_char(c))
     {
         return Cow::Borrowed(input);
     }
@@ -41,6 +55,10 @@ pub fn for_display(input: &str) -> Cow<'_, str> {
             '\r' => result.push_str("\\r"),
             '\x08' => result.push_str("\\b"),   // backspace
             '\x7f' => result.push_str("\\x7f"), // DEL
+            // Render invisible/bidi Unicode controls visibly to prevent spoofing
+            c if is_invisible_or_bidi_char(c) => {
+                result.push_str(&format!("\\u{{{:04X}}}", c as u32));
+            }
             // Allow normal printable chars, newlines, tabs
             c if c.is_ascii_graphic() || c == ' ' || c == '\n' || c == '\t' => {
                 result.push(c);
@@ -130,5 +148,17 @@ mod tests {
     fn test_escapes_null_byte() {
         let input = "before\x00after";
         assert_eq!(for_display(input), "before\\x00after");
+    }
+
+    #[test]
+    fn test_escapes_bidi_override() {
+        let input = "echo safe \u{202E}rm -rf /";
+        assert_eq!(for_display(input), "echo safe \\u{202E}rm -rf /");
+    }
+
+    #[test]
+    fn test_escapes_zero_width_chars() {
+        let input = "safe\u{200B}text";
+        assert_eq!(for_display(input), "safe\\u{200B}text");
     }
 }
