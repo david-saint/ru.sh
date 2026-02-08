@@ -179,16 +179,23 @@ impl UsageStats {
     }
 }
 
-/// Increment usage and check limits, returning any warnings
-pub fn track_usage(
+/// Check usage limits without incrementing counters.
+///
+/// This is used before an API call so requests are blocked only when limits
+/// are already exceeded.
+pub fn check_usage(
     daily_limit: Option<u32>,
     monthly_limit: Option<u32>,
 ) -> Result<Vec<UsageWarning>> {
+    let stats = UsageStats::load()?;
+    Ok(stats.check_limits(daily_limit, monthly_limit))
+}
+
+/// Record one successful API request.
+pub fn record_successful_request() -> Result<()> {
     let mut stats = UsageStats::load()?;
     stats.increment();
-    stats.save()?;
-
-    Ok(stats.check_limits(daily_limit, monthly_limit))
+    stats.save()
 }
 
 #[cfg(test)]

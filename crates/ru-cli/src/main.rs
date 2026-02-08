@@ -558,8 +558,8 @@ async fn run_prompt(cli: Cli) -> Result<()> {
     // Resolve shell: CLI flag > config file > auto-detect
     let shell = resolve_shell(cli.shell, &config)?;
 
-    // Track usage and check limits
-    let usage_warnings = usage::track_usage(config.get_daily_limit(), config.get_monthly_limit())?;
+    // Check usage limits before making an API request.
+    let usage_warnings = usage::check_usage(config.get_daily_limit(), config.get_monthly_limit())?;
     for warning in &usage_warnings {
         if warning.is_limit_exceeded {
             println!(
@@ -593,6 +593,14 @@ async fn run_prompt(cli: Cli) -> Result<()> {
     let start = Instant::now();
     let generated_script = api::generate_script(&prompt, &api_key, &model_id, &shell).await?;
     let api_duration_ms = start.elapsed().as_millis() as u64;
+
+    // Count only successful API requests toward usage.
+    if let Err(e) = usage::record_successful_request() {
+        eprintln!(
+            "{}",
+            format!("Warning: Failed to update usage counters: {}", e).dimmed()
+        );
+    }
 
     // Compute script hash for integrity verification (TOCTOU defense)
     let script_hash = compute_script_hash(&generated_script);
