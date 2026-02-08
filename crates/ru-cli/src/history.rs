@@ -1,11 +1,14 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+#[cfg(not(test))]
+use getrandom::fill as fill_random;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
 use crate::config::Config;
 use crate::safety::RiskLevel;
@@ -19,10 +22,88 @@ const ENTRIES_TO_KEEP: usize = 1000;
 /// Maximum length for script preview
 const PREVIEW_MAX_LEN: usize = 50;
 
-/// Compute SHA-256 hash of a string
+/// Salt file used for history hashing.
+#[cfg(not(test))]
+const HISTORY_SALT_FILE: &str = "history.salt";
+
+static HISTORY_SALT: LazyLock<String> = LazyLock::new(load_or_create_history_salt);
+
+/// Compute a salted SHA-256 hash of a string.
 fn hash_string(s: &str) -> String {
+    hash_string_with_salt(s, HISTORY_SALT.as_str())
+}
+
+fn hash_string_with_salt(s: &str, salt: &str) -> String {
     let mut hasher = Sha256::new();
+    hasher.update(salt.as_bytes());
+    hasher.update(b":");
     hasher.update(s.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+#[cfg(not(test))]
+fn load_or_create_history_salt() -> String {
+    let Some(path) = Config::dir().map(|dir| dir.join(HISTORY_SALT_FILE)) else {
+        return fallback_history_salt();
+    };
+
+    if let Ok(existing) = fs::read_to_string(&path) {
+        let trimmed = existing.trim();
+        if is_valid_salt(trimmed) {
+            return trimmed.to_string();
+        }
+    }
+
+    let salt = generate_salt().unwrap_or_else(fallback_history_salt);
+
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        if let Ok(mut f) = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&path)
+        {
+            let _ = writeln!(f, "{}", salt);
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = fs::write(&path, format!("{}\n", salt));
+    }
+
+    salt
+}
+
+#[cfg(test)]
+fn load_or_create_history_salt() -> String {
+    "ru-history-test-salt".to_string()
+}
+
+#[cfg(not(test))]
+fn is_valid_salt(value: &str) -> bool {
+    value.len() == 64 && value.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+#[cfg(not(test))]
+fn generate_salt() -> Option<String> {
+    let mut bytes = [0_u8; 32];
+    fill_random(&mut bytes).ok()?;
+    Some(bytes.iter().map(|b| format!("{:02x}", b)).collect())
+}
+
+#[cfg(not(test))]
+fn fallback_history_salt() -> String {
+    let seed = format!("{}:{:?}", std::process::id(), std::time::SystemTime::now());
+    let mut hasher = Sha256::new();
+    hasher.update(seed.as_bytes());
     format!("{:x}", hasher.finalize())
 }
 
@@ -33,17 +114,28 @@ fn truncate_preview(s: &str, max_len: usize) -> String {
     if first_line.len() <= max_len {
         first_line.to_string()
     } else {
-        format!("{}...", &first_line[..max_len])
+        format!("{}...", safe_prefix(first_line, max_len))
     }
+}
+
+fn safe_prefix(s: &str, max_len: usize) -> &str {
+    if max_len >= s.len() {
+        return s;
+    }
+    let mut i = max_len;
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    &s[..i]
 }
 
 /// A record of a script execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionRecord {
     pub timestamp: DateTime<Utc>,
-    /// SHA-256 hash of the prompt (for privacy)
+    /// Salted SHA-256 hash of the prompt (for privacy)
     pub prompt_hash: String,
-    /// SHA-256 hash of the script (for privacy)
+    /// Salted SHA-256 hash of the script (for privacy)
     pub script_hash: String,
     /// Truncated preview of the script for reference
     pub script_preview: String,
@@ -274,6 +366,15 @@ mod tests {
     }
 
     #[test]
+    fn test_truncate_preview_utf8_boundary_safety() {
+        let preview = truncate_preview("echo 你好世界", 9);
+        assert_eq!(preview, "echo 你...");
+
+        let emoji_preview = truncate_preview("ab🙂cd", 3);
+        assert_eq!(emoji_preview, "ab...");
+    }
+
+    #[test]
     fn test_hash_string() {
         // Same input should produce same hash
         let hash1 = hash_string("test");
@@ -287,6 +388,19 @@ mod tests {
         // Hash should be 64 hex characters (SHA-256)
         assert_eq!(hash1.len(), 64);
         assert!(hash1.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_hash_string_with_different_salts_differs() {
+        let hash1 = hash_string_with_salt(
+            "test",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        );
+        let hash2 = hash_string_with_salt(
+            "test",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        );
+        assert_ne!(hash1, hash2);
     }
 
     #[test]
