@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
+use tempfile::TempDir;
 use tokio::task::JoinHandle;
 
 use crate::config::Config;
@@ -304,25 +305,26 @@ pub async fn perform_update() -> Result<()> {
             )
         })?;
 
-    // Also find SHA256SUMS
-    let checksums_asset = release.assets.iter().find(|a| a.name == "SHA256SUMS");
+    // Checksum verification is mandatory for updater integrity.
+    let checksums_asset = release
+        .assets
+        .iter()
+        .find(|a| a.name == "SHA256SUMS")
+        .with_context(|| {
+            format!(
+                "Release '{}' is missing SHA256SUMS; refusing to update without checksum metadata",
+                release.tag_name
+            )
+        })?;
 
     // Download the archive
     eprintln!("{}", format!("Downloading {}...", archive_name).dimmed());
     let archive_bytes = download_asset(&asset.browser_download_url).await?;
 
-    // Verify checksum if SHA256SUMS is available
-    if let Some(cs_asset) = checksums_asset {
-        eprintln!("{}", "Verifying checksum...".dimmed());
-        let sums_text = download_asset_text(&cs_asset.browser_download_url).await?;
-        verify_checksum(&archive_bytes, &archive_name, &sums_text)?;
-        eprintln!("{}", "Checksum verified.".green());
-    } else {
-        eprintln!(
-            "{}",
-            "Warning: SHA256SUMS not found in release, skipping checksum verification.".yellow()
-        );
-    }
+    eprintln!("{}", "Verifying checksum...".dimmed());
+    let sums_text = download_asset_text(&checksums_asset.browser_download_url).await?;
+    verify_checksum(&archive_bytes, &archive_name, &sums_text)?;
+    eprintln!("{}", "Checksum verified.".green());
 
     // Extract and self-replace
     let binary_path =
@@ -429,22 +431,137 @@ fn verify_checksum(data: &[u8], file_name: &str, sums_text: &str) -> Result<()> 
 // Extraction & self-replace
 // ---------------------------------------------------------------------------
 
-/// Create a temporary directory for update extraction.
-fn make_temp_dir() -> Result<PathBuf> {
-    let base = std::env::temp_dir().join("ru-update");
-    // Include PID to avoid collisions
-    let dir = base.join(format!("{}", std::process::id()));
-    if dir.exists() {
-        fs::remove_dir_all(&dir).context("Failed to clean up old temp dir")?;
+/// Create a secure temporary directory for update extraction.
+fn make_temp_dir() -> Result<TempDir> {
+    tempfile::Builder::new()
+        .prefix("ru-update-")
+        .tempdir()
+        .context("Failed to create temporary directory for update")
+}
+
+/// Return true if an archive member path is safe to extract under `tmp_dir`.
+fn is_safe_archive_member(member: &str) -> bool {
+    if member.is_empty() || member.contains('\\') {
+        return false;
     }
-    fs::create_dir_all(&dir).context("Failed to create temp directory")?;
-    Ok(dir)
+
+    let path = Path::new(member);
+    if path.is_absolute() {
+        return false;
+    }
+
+    let mut has_normal_component = false;
+    for component in path.components() {
+        match component {
+            Component::Normal(_) => has_normal_component = true,
+            Component::CurDir => {}
+            Component::RootDir | Component::ParentDir => return false,
+            _ => return false,
+        }
+    }
+
+    has_normal_component
+}
+
+fn list_tar_members(archive_path: &Path) -> Result<Vec<String>> {
+    let output = std::process::Command::new("tar")
+        .arg("tzf")
+        .arg(archive_path)
+        .output()
+        .context("Failed to list archive contents with tar")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!(
+            "Failed to inspect update archive (tar list exited with {:?}): {}",
+            output.status.code(),
+            stderr.trim()
+        );
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToOwned::to_owned)
+        .collect())
+}
+
+fn select_binary_member(members: &[String], binary_name: &str) -> Option<String> {
+    let root = members
+        .iter()
+        .find(|entry| {
+            let trimmed = entry.trim_start_matches("./");
+            trimmed == binary_name && is_safe_archive_member(trimmed)
+        })
+        .cloned();
+
+    if root.is_some() {
+        return root;
+    }
+
+    members
+        .iter()
+        .filter(|entry| is_safe_archive_member(entry))
+        .filter(|entry| {
+            Path::new(entry)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name == binary_name)
+        })
+        .min_by_key(|entry| Path::new(entry).components().count())
+        .cloned()
+}
+
+fn validate_extracted_binary(extracted: &Path, tmp_dir: &Path, binary_name: &str) -> Result<()> {
+    let meta = fs::symlink_metadata(extracted).with_context(|| {
+        format!(
+            "Expected binary '{}' not found after extraction",
+            extracted.display()
+        )
+    })?;
+
+    if !meta.file_type().is_file() {
+        bail!(
+            "Extracted archive entry '{}' is not a regular file",
+            extracted.display()
+        );
+    }
+
+    let canonical_tmp = tmp_dir
+        .canonicalize()
+        .context("Failed to canonicalize extraction directory")?;
+    let canonical_extracted = extracted
+        .canonicalize()
+        .context("Failed to canonicalize extracted binary path")?;
+    if !canonical_extracted.starts_with(&canonical_tmp) {
+        bail!("Archive extraction escaped the temporary directory");
+    }
+
+    let file_name = extracted
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    if file_name != binary_name {
+        bail!(
+            "Unexpected extracted filename '{}', expected '{}'",
+            file_name,
+            binary_name
+        );
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn powershell_single_quote_escape(input: &str) -> String {
+    input.replace('\'', "''")
 }
 
 /// Extract the binary from the archive and replace the current executable.
 fn extract_and_replace(archive_bytes: &[u8], binary_path: &PathBuf, ext: &str) -> Result<()> {
     let tmp_dir = make_temp_dir()?;
-    let archive_path = tmp_dir.join(format!("ru-archive.{}", ext));
+    let archive_path = tmp_dir.path().join(format!("ru-archive.{}", ext));
     fs::write(&archive_path, archive_bytes).context("Failed to write archive to temp dir")?;
 
     let binary_name = if cfg!(target_os = "windows") {
@@ -455,56 +572,83 @@ fn extract_and_replace(archive_bytes: &[u8], binary_path: &PathBuf, ext: &str) -
 
     // Extract
     if ext == "tar.gz" {
+        let members = list_tar_members(&archive_path)?;
+        let selected = select_binary_member(&members, binary_name).with_context(|| {
+            format!(
+                "Could not find binary '{}' in update archive contents",
+                binary_name
+            )
+        })?;
+        if !is_safe_archive_member(&selected) {
+            bail!("Archive contained unsafe path '{}'", selected);
+        }
+
         let status = std::process::Command::new("tar")
-            .args(["xzf", &archive_path.to_string_lossy()])
+            .arg("xzf")
+            .arg(&archive_path)
             .arg("-C")
-            .arg(&tmp_dir)
+            .arg(tmp_dir.path())
+            .args(["--no-same-owner", "--no-same-permissions"])
+            .arg("--")
+            .arg(&selected)
             .status()
             .context("Failed to run tar. Is tar installed?")?;
 
         if !status.success() {
             bail!("tar extraction failed with exit code {:?}", status.code());
         }
+
+        let extracted = tmp_dir.path().join(selected.trim_start_matches("./"));
+        validate_extracted_binary(&extracted, tmp_dir.path(), binary_name)?;
+
+        // Self-replace: write to temp file in the same directory, then atomic rename
+        self_replace(&extracted, binary_path)?;
     } else {
-        // zip on Windows — use PowerShell
+        // zip on Windows — extract only the binary entry to avoid blind extraction.
         #[cfg(target_os = "windows")]
         {
+            let extracted = tmp_dir.path().join(binary_name);
+            let ps_script = format!(
+                "$ErrorActionPreference='Stop'; \
+                 Add-Type -AssemblyName System.IO.Compression.FileSystem; \
+                 $zip=[System.IO.Compression.ZipFile]::OpenRead('{archive}'); \
+                 try {{ \
+                     $entry=$zip.Entries | Where-Object {{ \
+                         -not $_.FullName.Contains('..') -and \
+                         -not $_.FullName.StartsWith('/') -and \
+                         -not $_.FullName.StartsWith('\\\\') -and \
+                         $_.Name -eq '{binary}' \
+                     }} | Sort-Object FullName | Select-Object -First 1; \
+                     if (-not $entry) {{ exit 2 }}; \
+                     [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, '{dest}', $true); \
+                 }} finally {{ \
+                     $zip.Dispose(); \
+                 }}",
+                archive = powershell_single_quote_escape(&archive_path.display().to_string()),
+                binary = powershell_single_quote_escape(binary_name),
+                dest = powershell_single_quote_escape(&extracted.display().to_string()),
+            );
+
             let status = std::process::Command::new("powershell")
-                .args([
-                    "-NoProfile",
-                    "-Command",
-                    &format!(
-                        "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
-                        archive_path.display(),
-                        tmp_dir.display()
-                    ),
-                ])
+                .args(["-NoProfile", "-Command", &ps_script])
                 .status()
                 .context("Failed to run PowerShell for extraction")?;
 
+            if status.code() == Some(2) {
+                bail!("Expected binary '{}' not found in zip archive", binary_name);
+            }
             if !status.success() {
                 bail!("zip extraction failed");
             }
+
+            validate_extracted_binary(&extracted, tmp_dir.path(), binary_name)?;
+            self_replace(&extracted, binary_path)?;
         }
         #[cfg(not(target_os = "windows"))]
         {
             bail!("zip extraction is only supported on Windows");
         }
     }
-
-    let extracted = tmp_dir.join(binary_name);
-    if !extracted.exists() {
-        bail!(
-            "Expected binary '{}' not found after extraction",
-            binary_name
-        );
-    }
-
-    // Self-replace: write to temp file in the same directory, then atomic rename
-    self_replace(&extracted, binary_path)?;
-
-    // Clean up temp dir
-    let _ = fs::remove_dir_all(&tmp_dir);
 
     Ok(())
 }
@@ -654,6 +798,33 @@ mod tests {
     fn test_archive_ext() {
         let ext = archive_ext();
         assert!(ext == "tar.gz" || ext == "zip");
+    }
+
+    #[test]
+    fn test_is_safe_archive_member() {
+        assert!(is_safe_archive_member("ru"));
+        assert!(is_safe_archive_member("./ru"));
+        assert!(is_safe_archive_member("bin/ru"));
+        assert!(!is_safe_archive_member(""));
+        assert!(!is_safe_archive_member("../ru"));
+        assert!(!is_safe_archive_member("/tmp/ru"));
+        assert!(!is_safe_archive_member("bin\\ru"));
+    }
+
+    #[test]
+    fn test_select_binary_member_prefers_safe_path() {
+        let members = vec![
+            "../ru".to_string(),
+            "nested/ru".to_string(),
+            "ru".to_string(),
+        ];
+        assert_eq!(select_binary_member(&members, "ru"), Some("ru".to_string()));
+    }
+
+    #[test]
+    fn test_select_binary_member_rejects_only_unsafe_entries() {
+        let members = vec!["../ru".to_string(), "/etc/passwd".to_string()];
+        assert_eq!(select_binary_member(&members, "ru"), None);
     }
 
     #[test]
