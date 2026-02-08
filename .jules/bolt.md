@@ -1,7 +1,3 @@
-## 2025-02-18 - Sanitize Allocation Optimization
-**Learning:** Text sanitization functions often process strings that are already safe. Returning `Cow<'_, str>` instead of `String` allows checking for safe content and returning a borrowed slice, avoiding allocation in the common case.
-**Action:** When writing string transformation functions, consider if the "no-op" case is common. If so, return `Cow` to allow zero-copy returns.
-
-## 2025-05-20 - History Rotation Memory Optimization
-**Learning:** Truncating large files by reading all lines into a `Vec` causes massive memory spikes (O(N)). Using a `VecDeque` ring buffer with fixed capacity reduces peak memory usage to O(K) where K is the number of lines to keep.
-**Action:** When processing files where only a subset of data is needed (e.g., tail), use a fixed-size buffer or sliding window instead of loading the entire file.
+## 2024-05-22 - [Optimized History Rotation]
+**Learning:** `BufReader::lines()` allocates a new `String` for every line, which causes massive allocation churn (O(N)) when processing large log files only to discard most of them.
+**Action:** Use `read_line` with a `VecDeque<String>` ring buffer and a "spare" `String` to recycle allocations. This reduces allocations from O(total_lines) to O(kept_lines). Also, use `trim_end()` with `writeln!` when writing back to ensure consistent line endings without double newlines.

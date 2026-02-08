@@ -129,18 +129,30 @@ fn rotate_history(path: &PathBuf) -> Result<()> {
     let file = File::open(path)
         .with_context(|| format!("Failed to open history file: {}", path.display()))?;
 
-    let reader = BufReader::new(file);
+    let mut reader = BufReader::new(file);
 
     // Use a VecDeque as a ring buffer to store only the last ENTRIES_TO_KEEP lines
     // This optimization avoids loading the entire history file into memory
     let mut lines = VecDeque::with_capacity(ENTRIES_TO_KEEP);
 
-    for line in reader.lines() {
-        let line = line?;
-        if lines.len() == ENTRIES_TO_KEEP {
-            lines.pop_front();
+    // Reuse a single String allocation for reading lines
+    let mut spare = String::new();
+
+    loop {
+        spare.clear();
+        let bytes_read = reader.read_line(&mut spare)?;
+        if bytes_read == 0 {
+            break;
         }
-        lines.push_back(line);
+
+        if lines.len() < ENTRIES_TO_KEEP {
+            lines.push_back(std::mem::take(&mut spare));
+        } else {
+            // Push the new line (currently in spare)
+            lines.push_back(std::mem::take(&mut spare));
+            // Recycle the oldest line's allocation
+            spare = lines.pop_front().expect("Queue should not be empty");
+        }
     }
 
     // Write the truncated history with restricted permissions (0600 on Unix)
@@ -161,7 +173,8 @@ fn rotate_history(path: &PathBuf) -> Result<()> {
         .with_context(|| format!("Failed to truncate history file: {}", path.display()))?;
 
     for line in lines {
-        writeln!(file, "{}", line)?;
+        // Trim trailing whitespace (including \n) and ensure exactly one newline
+        writeln!(file, "{}", line.trim_end())?;
     }
 
     Ok(())
