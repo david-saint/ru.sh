@@ -216,20 +216,7 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
         // ================================================================
 
         // === CRITICAL: System destruction ===
-        DangerPattern {
-            pattern: r"rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+/(\s|[;&|#]|$)",
-            level: RiskLevel::Critical,
-            category: WarningCategory::SystemDestruction,
-            description: "Removes the root filesystem - will destroy the system",
-            scope: ShellScope::Unix,
-        },
-        DangerPattern {
-            pattern: r"rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+/(home|etc|root|var|usr|boot|bin|sbin|lib|lib64)(/|\s|[;&|#]|$)",
-            level: RiskLevel::Critical,
-            category: WarningCategory::SystemDestruction,
-            description: "Removes critical system directories",
-            scope: ShellScope::Unix,
-        },
+        // NOTE: rm-specific checks are handled by dedicated parsing logic below.
         DangerPattern {
             pattern: r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:",
             level: RiskLevel::Critical,
@@ -259,20 +246,6 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
             scope: ShellScope::Unix,
         },
         // === HIGH: Data loss / Privilege escalation ===
-        DangerPattern {
-            pattern: r"rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+\*",
-            level: RiskLevel::High,
-            category: WarningCategory::DataLoss,
-            description: "Recursively removes files with wildcard - may delete more than intended",
-            scope: ShellScope::Unix,
-        },
-        DangerPattern {
-            pattern: r"sudo\s+rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)",
-            level: RiskLevel::High,
-            category: WarningCategory::DataLoss,
-            description: "Privileged recursive deletion - dangerous with elevated permissions",
-            scope: ShellScope::Unix,
-        },
         DangerPattern {
             pattern: r"(curl|wget)\s+[^\n|]*\|\s*(sudo\s+)?(ba)?sh",
             level: RiskLevel::High,
@@ -657,6 +630,463 @@ fn run_syntax_check(binary: &str, args: &[&str]) -> (bool, Option<String>) {
     }
 }
 
+const RM_ROOT_WARNING: &str = "Removes the root filesystem - will destroy the system";
+const RM_CRITICAL_DIR_WARNING: &str = "Removes critical system directories";
+const RM_WILDCARD_WARNING: &str =
+    "Recursively removes files with wildcard - may delete more than intended";
+const RM_PRIVILEGED_WARNING: &str =
+    "Privileged recursive deletion - dangerous with elevated permissions";
+const CRITICAL_SYSTEM_DIRS: [&str; 10] = [
+    "home", "etc", "root", "var", "usr", "boot", "bin", "sbin", "lib", "lib64",
+];
+
+#[derive(Debug, Default, Clone, Copy)]
+struct RmRiskSummary {
+    root_target: bool,
+    critical_dir_target: bool,
+    wildcard_target: bool,
+    privileged_rm: bool,
+}
+
+/// Add warning unless a warning in the same category already has equal/higher severity.
+fn add_warning(
+    warnings: &mut Vec<SafetyWarning>,
+    max_level: &mut RiskLevel,
+    level: RiskLevel,
+    category: WarningCategory,
+    description: &'static str,
+) {
+    let already_warned = warnings
+        .iter()
+        .any(|w: &SafetyWarning| w.category == category && w.level >= level);
+
+    if already_warned {
+        return;
+    }
+
+    if level > *max_level {
+        *max_level = level;
+    }
+
+    warnings.push(SafetyWarning {
+        level,
+        category,
+        description: description.to_string(),
+    });
+}
+
+fn analyze_unix_rm_risks(script: &str) -> RmRiskSummary {
+    let mut summary = RmRiskSummary::default();
+
+    for command in split_shell_commands(script) {
+        let tokens = split_shell_words(&command);
+        let Some((rm_index, is_privileged)) = locate_rm_invocation(&tokens) else {
+            continue;
+        };
+
+        let mut has_dangerous_flag = false;
+        let mut saw_root_target = false;
+        let mut saw_critical_dir_target = false;
+        let mut saw_wildcard_target = false;
+        let mut options_terminated = false;
+
+        for token in tokens.iter().skip(rm_index + 1) {
+            let arg = token.as_str();
+
+            if !options_terminated && arg == "--" {
+                options_terminated = true;
+                continue;
+            }
+
+            let is_option = !options_terminated && arg.starts_with('-') && arg != "-";
+            if is_option {
+                if rm_has_dangerous_option(arg) {
+                    has_dangerous_flag = true;
+                }
+                continue;
+            }
+
+            let (operand_prefix, has_unescaped_wildcard) = rm_operand_prefix(arg);
+            if has_unescaped_wildcard {
+                saw_wildcard_target = true;
+            }
+
+            if let Some(kind) = classify_rm_target(&operand_prefix) {
+                match kind {
+                    RmTargetKind::Root => saw_root_target = true,
+                    RmTargetKind::CriticalDir => saw_critical_dir_target = true,
+                }
+            }
+        }
+
+        if !has_dangerous_flag {
+            continue;
+        }
+
+        summary.root_target |= saw_root_target;
+        summary.critical_dir_target |= saw_critical_dir_target;
+        summary.wildcard_target |= saw_wildcard_target;
+        summary.privileged_rm |= is_privileged;
+    }
+
+    summary
+}
+
+fn split_shell_commands(script: &str) -> Vec<String> {
+    let mut commands = Vec::new();
+    let mut current = String::new();
+    let mut chars = script.chars().peekable();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    let mut at_word_start = true;
+
+    while let Some(ch) = chars.next() {
+        if escaped {
+            current.push(ch);
+            escaped = false;
+            at_word_start = false;
+            continue;
+        }
+
+        if !in_single && ch == '\\' {
+            escaped = true;
+            current.push(ch);
+            at_word_start = false;
+            continue;
+        }
+
+        if !in_double && ch == '\'' {
+            in_single = !in_single;
+            current.push(ch);
+            at_word_start = false;
+            continue;
+        }
+
+        if !in_single && ch == '"' {
+            in_double = !in_double;
+            current.push(ch);
+            at_word_start = false;
+            continue;
+        }
+
+        if !in_single && !in_double {
+            // Shell comment starts only at a token boundary.
+            if ch == '#' && at_word_start {
+                for next in chars.by_ref() {
+                    if next == '\n' {
+                        break;
+                    }
+                }
+
+                if !current.trim().is_empty() {
+                    commands.push(current.trim().to_string());
+                    current.clear();
+                }
+                at_word_start = true;
+                continue;
+            }
+
+            if ch == ';' || ch == '\n' {
+                if !current.trim().is_empty() {
+                    commands.push(current.trim().to_string());
+                    current.clear();
+                }
+                at_word_start = true;
+                continue;
+            }
+
+            if ch == '|' || ch == '&' {
+                if let Some(peeked) = chars.peek()
+                    && *peeked == ch
+                {
+                    let _ = chars.next();
+                }
+                if !current.trim().is_empty() {
+                    commands.push(current.trim().to_string());
+                    current.clear();
+                }
+                at_word_start = true;
+                continue;
+            }
+        }
+
+        at_word_start = ch.is_whitespace();
+        current.push(ch);
+    }
+
+    if !current.trim().is_empty() {
+        commands.push(current.trim().to_string());
+    }
+
+    commands
+}
+
+fn split_shell_words(command: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+    let chars = command.chars();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    let mut at_word_start = true;
+
+    for ch in chars {
+        if escaped {
+            current.push('\\');
+            current.push(ch);
+            escaped = false;
+            at_word_start = false;
+            continue;
+        }
+
+        if !in_single && ch == '\\' {
+            escaped = true;
+            continue;
+        }
+
+        if !in_double && ch == '\'' {
+            in_single = !in_single;
+            at_word_start = false;
+            continue;
+        }
+
+        if !in_single && ch == '"' {
+            in_double = !in_double;
+            at_word_start = false;
+            continue;
+        }
+
+        if !in_single && !in_double {
+            if ch == '#' && at_word_start {
+                break;
+            }
+
+            if ch.is_whitespace() {
+                if !current.is_empty() {
+                    words.push(std::mem::take(&mut current));
+                }
+                at_word_start = true;
+                continue;
+            }
+        }
+
+        current.push(ch);
+        at_word_start = false;
+    }
+
+    if escaped {
+        current.push('\\');
+    }
+
+    if !current.is_empty() {
+        words.push(current);
+    }
+
+    words
+}
+
+fn locate_rm_invocation(tokens: &[String]) -> Option<(usize, bool)> {
+    let mut idx = 0;
+    let mut privileged = false;
+
+    while idx < tokens.len() {
+        let token = tokens[idx].as_str();
+
+        if is_shell_assignment(token) {
+            idx += 1;
+            continue;
+        }
+
+        if matches!(token, "sudo" | "doas") {
+            privileged = true;
+            idx += 1;
+            while idx < tokens.len() {
+                let next = tokens[idx].as_str();
+                if next == "--" {
+                    idx += 1;
+                    break;
+                }
+                if !next.starts_with('-') {
+                    break;
+                }
+                idx += 1;
+            }
+            continue;
+        }
+
+        if token == "env" {
+            idx += 1;
+            while idx < tokens.len() {
+                let next = tokens[idx].as_str();
+                if next == "--" {
+                    idx += 1;
+                    break;
+                }
+                if next.starts_with('-') || is_shell_assignment(next) {
+                    idx += 1;
+                    continue;
+                }
+                break;
+            }
+            continue;
+        }
+
+        if token == "command" {
+            idx += 1;
+            while idx < tokens.len() {
+                let next = tokens[idx].as_str();
+                if next == "--" {
+                    idx += 1;
+                    break;
+                }
+                if !next.starts_with('-') {
+                    break;
+                }
+                idx += 1;
+            }
+            continue;
+        }
+
+        if is_rm_command_token(token) {
+            return Some((idx, privileged));
+        }
+
+        return None;
+    }
+
+    None
+}
+
+fn is_shell_assignment(token: &str) -> bool {
+    let Some((name, _value)) = token.split_once('=') else {
+        return false;
+    };
+
+    if name.is_empty() {
+        return false;
+    }
+
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return false;
+    }
+
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+fn is_rm_command_token(token: &str) -> bool {
+    let stripped = token.strip_prefix('\\').unwrap_or(token);
+    let binary = stripped.rsplit('/').next().unwrap_or(stripped);
+    binary == "rm"
+}
+
+fn rm_has_dangerous_option(arg: &str) -> bool {
+    if arg.starts_with("--") {
+        return arg == "--recursive"
+            || arg.starts_with("--recursive=")
+            || arg == "--force"
+            || arg.starts_with("--force=")
+            || arg == "--no-preserve-root";
+    }
+
+    arg.starts_with('-') && arg.chars().skip(1).any(|c| matches!(c, 'r' | 'R' | 'f'))
+}
+
+/// Returns operand prefix with escapes removed, and whether an unescaped wildcard was found.
+fn rm_operand_prefix(raw_arg: &str) -> (String, bool) {
+    let mut prefix = String::new();
+    let mut escaped = false;
+
+    for ch in raw_arg.chars() {
+        if escaped {
+            prefix.push(ch);
+            escaped = false;
+            continue;
+        }
+
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+
+        if matches!(ch, '*' | '?' | '[') {
+            return (prefix, true);
+        }
+
+        prefix.push(ch);
+    }
+
+    if escaped {
+        prefix.push('\\');
+    }
+
+    (prefix, false)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RmTargetKind {
+    Root,
+    CriticalDir,
+}
+
+fn classify_rm_target(operand_prefix: &str) -> Option<RmTargetKind> {
+    let normalized = normalize_unix_absolute_path(operand_prefix)?;
+
+    if normalized == "/" {
+        return Some(RmTargetKind::Root);
+    }
+
+    if is_critical_system_path(&normalized) {
+        return Some(RmTargetKind::CriticalDir);
+    }
+
+    None
+}
+
+fn normalize_unix_absolute_path(path: &str) -> Option<String> {
+    if !path.starts_with('/') {
+        return None;
+    }
+
+    let mut segments = Vec::new();
+    for segment in path.split('/') {
+        match segment {
+            "" | "." => continue,
+            ".." => {
+                let _ = segments.pop();
+            }
+            _ => segments.push(segment),
+        }
+    }
+
+    if segments.is_empty() {
+        Some("/".to_string())
+    } else {
+        Some(format!("/{}", segments.join("/")))
+    }
+}
+
+fn is_critical_system_path(normalized_path: &str) -> bool {
+    for dir in CRITICAL_SYSTEM_DIRS {
+        let base = format!("/{dir}");
+        if normalized_path == base {
+            return true;
+        }
+        if let Some(rest) = normalized_path.strip_prefix(&base)
+            && rest.starts_with('/')
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
 /// Analyze a script for dangerous patterns, scoped to the target shell
 pub fn analyze_script(script: &str, shell: &Shell) -> SafetyReport {
     let mut warnings = Vec::new();
@@ -670,21 +1100,54 @@ pub fn analyze_script(script: &str, shell: &Shell) -> SafetyReport {
             continue;
         }
 
-        // Avoid duplicate warnings for overlapping patterns
-        let already_warned = warnings
-            .iter()
-            .any(|w: &SafetyWarning| w.category == pattern.category && w.level >= pattern.level);
+        add_warning(
+            &mut warnings,
+            &mut max_level,
+            pattern.level,
+            pattern.category.clone(),
+            pattern.description,
+        );
+    }
 
-        if !already_warned {
-            if pattern.level > max_level {
-                max_level = pattern.level;
-            }
+    if shell.is_unix() {
+        let rm_risks = analyze_unix_rm_risks(script);
 
-            warnings.push(SafetyWarning {
-                level: pattern.level,
-                category: pattern.category.clone(),
-                description: pattern.description.to_string(),
-            });
+        if rm_risks.root_target {
+            add_warning(
+                &mut warnings,
+                &mut max_level,
+                RiskLevel::Critical,
+                WarningCategory::SystemDestruction,
+                RM_ROOT_WARNING,
+            );
+        } else if rm_risks.critical_dir_target {
+            add_warning(
+                &mut warnings,
+                &mut max_level,
+                RiskLevel::Critical,
+                WarningCategory::SystemDestruction,
+                RM_CRITICAL_DIR_WARNING,
+            );
+        }
+
+        if rm_risks.wildcard_target {
+            add_warning(
+                &mut warnings,
+                &mut max_level,
+                RiskLevel::High,
+                WarningCategory::DataLoss,
+                RM_WILDCARD_WARNING,
+            );
+        }
+
+        if rm_risks.privileged_rm {
+            add_warning(
+                &mut warnings,
+                &mut max_level,
+                RiskLevel::High,
+                WarningCategory::DataLoss,
+                RM_PRIVILEGED_WARNING,
+            );
         }
     }
 
@@ -1038,8 +1501,8 @@ mod tests {
     }
 
     #[test]
-    fn test_analyze_critical_rm_rf_root_bypass_attempt() {
-        // This detects if the " # comment" suffix bypasses the regex
+    fn test_analyze_critical_rm_rf_root_with_comment() {
+        // `#` starts a comment at token boundaries, so this is still `rm -rf /`.
         let report = analyze_script("rm -rf / # comment", &Shell::Bash);
         assert_eq!(
             report.overall_risk,
@@ -1049,35 +1512,117 @@ mod tests {
     }
 
     #[test]
-    fn test_analyze_critical_rm_rf_root_no_space_comment() {
-        // This checks if "rm -rf /#" (no space before #) bypasses the regex
+    fn test_analyze_safe_rm_rf_root_hash_suffix_in_same_token() {
+        // `/#` is not a shell comment and should not be treated as `/` (but remains a medium rm warning).
         let report = analyze_script("rm -rf /# comment", &Shell::Bash);
         assert_eq!(
             report.overall_risk,
-            RiskLevel::Critical,
-            "rm -rf /# comment should be Critical"
+            RiskLevel::Medium,
+            "rm -rf /# comment should not be treated as root deletion"
         );
     }
 
     #[test]
-    fn test_analyze_critical_rm_rf_home_no_space_comment() {
-        // This checks if "rm -rf /home#" (no space before #) bypasses the regex
+    fn test_analyze_safe_rm_rf_home_hash_suffix_in_same_token() {
+        // `/home#` is a different path than `/home` (but remains a medium rm warning).
         let report = analyze_script("rm -rf /home# comment", &Shell::Bash);
         assert_eq!(
             report.overall_risk,
-            RiskLevel::Critical,
-            "rm -rf /home# comment should be Critical"
+            RiskLevel::Medium,
+            "rm -rf /home# comment should not be treated as /home"
         );
     }
 
     #[test]
     fn test_analyze_critical_rm_rf_etc_separator() {
-        // This checks if "rm -rf /etc;" (semicolon separator) is caught
         let report = analyze_script("rm -rf /etc;", &Shell::Bash);
         assert_eq!(
             report.overall_risk,
             RiskLevel::Critical,
             "rm -rf /etc; should be Critical"
         );
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_after_args() {
+        let report = analyze_script("rm / -rf", &Shell::Bash);
+        assert_eq!(
+            report.overall_risk,
+            RiskLevel::Critical,
+            "rm / -rf should be Critical"
+        );
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_mixed_flags() {
+        let report = analyze_script("rm -v -rf /", &Shell::Bash);
+        assert_eq!(
+            report.overall_risk,
+            RiskLevel::Critical,
+            "rm -v -rf / should be Critical"
+        );
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_quoted_root() {
+        let report = analyze_script(r#"rm -rf "/""#, &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_quoted_critical_dir() {
+        let report = analyze_script(r#"rm -rf "/etc""#, &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_root_aliases() {
+        let report_double_slash = analyze_script("rm -rf //", &Shell::Bash);
+        assert_eq!(report_double_slash.overall_risk, RiskLevel::Critical);
+
+        let report_dot_alias = analyze_script("rm -rf /./", &Shell::Bash);
+        assert_eq!(report_dot_alias.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_root_wildcard() {
+        let report = analyze_script("rm -rf /*", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_critical_dir_wildcard() {
+        let report = analyze_script("rm -rf /etc/*", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_long_option_after_path() {
+        let report = analyze_script("rm / --recursive", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_high_rm_wildcard_after_args() {
+        let report = analyze_script("rm * -rf", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::High);
+    }
+
+    #[test]
+    fn test_analyze_high_sudo_rm_recursive_non_system_path() {
+        let report = analyze_script("sudo rm -rf tmp", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::High);
+    }
+
+    #[test]
+    fn test_analyze_safe_rm_verbose_only() {
+        let report = analyze_script("rm / --verbose", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Safe);
+    }
+
+    #[test]
+    fn test_analyze_safe_rm_double_dash_operands() {
+        let report = analyze_script("rm -- -rf /", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Safe);
     }
 }
