@@ -254,13 +254,6 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            pattern: r"chmod\s+777\s+",
-            level: RiskLevel::High,
-            category: WarningCategory::InsecurePermissions,
-            description: "Setting world-writable permissions - severe security risk",
-            scope: ShellScope::Unix,
-        },
-        DangerPattern {
             pattern: r">\s*/etc/(passwd|shadow|sudoers)",
             level: RiskLevel::High,
             category: WarningCategory::PrivilegeEscalation,
@@ -636,6 +629,8 @@ const RM_WILDCARD_WARNING: &str =
     "Recursively removes files with wildcard - may delete more than intended";
 const RM_PRIVILEGED_WARNING: &str =
     "Privileged recursive deletion - dangerous with elevated permissions";
+const CHMOD_WORLD_WRITABLE_WARNING: &str =
+    "Setting world-writable permissions - severe security risk";
 const CRITICAL_SYSTEM_DIRS: [&str; 10] = [
     "home", "etc", "root", "var", "usr", "boot", "bin", "sbin", "lib", "lib64",
 ];
@@ -730,6 +725,162 @@ fn analyze_unix_rm_risks(script: &str) -> RmRiskSummary {
     }
 
     summary
+}
+
+fn analyze_unix_chmod_world_writable(script: &str) -> bool {
+    for command in split_shell_commands(script) {
+        let tokens = split_shell_words(&command);
+        let Some(chmod_index) = locate_chmod_invocation(&tokens) else {
+            continue;
+        };
+
+        if chmod_invocation_sets_world_writable(&tokens[(chmod_index + 1)..]) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn chmod_invocation_sets_world_writable(args: &[String]) -> bool {
+    let mut idx = 0;
+    let mut options_terminated = false;
+
+    while idx < args.len() {
+        let arg = args[idx].as_str();
+
+        if !options_terminated && arg == "--" {
+            options_terminated = true;
+            idx += 1;
+            continue;
+        }
+
+        if !options_terminated && arg.starts_with("--reference=") {
+            return false;
+        }
+
+        if !options_terminated && arg == "--reference" {
+            return false;
+        }
+
+        if !options_terminated && arg.starts_with('-') && arg != "-" {
+            idx += 1;
+            continue;
+        }
+
+        let mode = unescape_shell_token(arg);
+        return chmod_mode_sets_world_writable(mode.trim());
+    }
+
+    false
+}
+
+fn chmod_mode_sets_world_writable(mode: &str) -> bool {
+    chmod_numeric_mode_sets_world_writable(mode) || chmod_symbolic_mode_sets_world_writable(mode)
+}
+
+fn chmod_numeric_mode_sets_world_writable(mode: &str) -> bool {
+    let bytes = mode.as_bytes();
+    if bytes.is_empty() || bytes.len() > 4 {
+        return false;
+    }
+
+    if !bytes.iter().all(|b| matches!(b, b'0'..=b'7')) {
+        return false;
+    }
+
+    let others = bytes[bytes.len() - 1] - b'0';
+    (others & 0b010) != 0
+}
+
+fn chmod_symbolic_mode_sets_world_writable(mode: &str) -> bool {
+    for clause in mode.split(',') {
+        if clause.is_empty() {
+            return false;
+        }
+
+        let mut chars = clause.chars().peekable();
+        let mut targets_other = false;
+        let mut saw_who = false;
+
+        while let Some(&ch) = chars.peek() {
+            if matches!(ch, 'u' | 'g' | 'o' | 'a') {
+                saw_who = true;
+                if matches!(ch, 'o' | 'a') {
+                    targets_other = true;
+                }
+                let _ = chars.next();
+                continue;
+            }
+            break;
+        }
+
+        // When omitted, chmod defaults to "a" (subject to umask).
+        if !saw_who {
+            targets_other = true;
+        }
+
+        let Some(op) = chars.next() else {
+            return false;
+        };
+
+        if !matches!(op, '+' | '-' | '=') {
+            return false;
+        }
+
+        let perms: Vec<char> = chars.collect();
+        if perms.is_empty() && op != '=' {
+            return false;
+        }
+
+        if !perms
+            .iter()
+            .all(|c| matches!(c, 'r' | 'w' | 'x' | 'X' | 's' | 't' | 'u' | 'g' | 'o'))
+        {
+            return false;
+        }
+
+        if !targets_other || !matches!(op, '+' | '=') {
+            continue;
+        }
+
+        if perms.contains(&'w') {
+            return true;
+        }
+
+        // Copying permissions (e.g. o=u) can propagate write bits to others.
+        if perms.iter().any(|c| matches!(*c, 'u' | 'g' | 'o')) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn unescape_shell_token(token: &str) -> String {
+    let mut normalized = String::new();
+    let mut chars = token.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            normalized.push(ch);
+            continue;
+        }
+
+        let Some(next) = chars.next() else {
+            normalized.push('\\');
+            break;
+        };
+
+        // Backslash-newline is a shell line continuation.
+        if next == '\n' {
+            continue;
+        }
+
+        normalized.push(next);
+    }
+
+    normalized
 }
 
 fn split_shell_commands(script: &str) -> Vec<String> {
@@ -958,6 +1109,76 @@ fn locate_rm_invocation(tokens: &[String]) -> Option<(usize, bool)> {
     None
 }
 
+fn locate_chmod_invocation(tokens: &[String]) -> Option<usize> {
+    let mut idx = 0;
+
+    while idx < tokens.len() {
+        let token = tokens[idx].as_str();
+
+        if is_shell_assignment(token) {
+            idx += 1;
+            continue;
+        }
+
+        if matches!(token, "sudo" | "doas") {
+            idx += 1;
+            while idx < tokens.len() {
+                let next = tokens[idx].as_str();
+                if next == "--" {
+                    idx += 1;
+                    break;
+                }
+                if !next.starts_with('-') {
+                    break;
+                }
+                idx += 1;
+            }
+            continue;
+        }
+
+        if token == "env" {
+            idx += 1;
+            while idx < tokens.len() {
+                let next = tokens[idx].as_str();
+                if next == "--" {
+                    idx += 1;
+                    break;
+                }
+                if next.starts_with('-') || is_shell_assignment(next) {
+                    idx += 1;
+                    continue;
+                }
+                break;
+            }
+            continue;
+        }
+
+        if token == "command" {
+            idx += 1;
+            while idx < tokens.len() {
+                let next = tokens[idx].as_str();
+                if next == "--" {
+                    idx += 1;
+                    break;
+                }
+                if !next.starts_with('-') {
+                    break;
+                }
+                idx += 1;
+            }
+            continue;
+        }
+
+        if is_chmod_command_token(token) {
+            return Some(idx);
+        }
+
+        return None;
+    }
+
+    None
+}
+
 fn is_shell_assignment(token: &str) -> bool {
     let Some((name, _value)) = token.split_once('=') else {
         return false;
@@ -983,6 +1204,12 @@ fn is_rm_command_token(token: &str) -> bool {
     let stripped = token.strip_prefix('\\').unwrap_or(token);
     let binary = stripped.rsplit('/').next().unwrap_or(stripped);
     binary == "rm"
+}
+
+fn is_chmod_command_token(token: &str) -> bool {
+    let stripped = token.strip_prefix('\\').unwrap_or(token);
+    let binary = stripped.rsplit('/').next().unwrap_or(stripped);
+    binary == "chmod"
 }
 
 fn rm_has_dangerous_option(arg: &str) -> bool {
@@ -1147,6 +1374,16 @@ pub fn analyze_script(script: &str, shell: &Shell) -> SafetyReport {
                 RiskLevel::High,
                 WarningCategory::DataLoss,
                 RM_PRIVILEGED_WARNING,
+            );
+        }
+
+        if analyze_unix_chmod_world_writable(script) {
+            add_warning(
+                &mut warnings,
+                &mut max_level,
+                RiskLevel::High,
+                WarningCategory::InsecurePermissions,
+                CHMOD_WORLD_WRITABLE_WARNING,
             );
         }
     }
@@ -1336,6 +1573,66 @@ mod tests {
     fn test_analyze_high_chmod_777() {
         let report = analyze_script("chmod 777 /tmp/file", &Shell::Bash);
         assert_eq!(report.overall_risk, RiskLevel::High);
+    }
+
+    #[test]
+    fn test_analyze_high_chmod_recursive_777() {
+        let report = analyze_script("chmod -R 777 /tmp/file", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::High);
+    }
+
+    #[test]
+    fn test_analyze_high_chmod_verbose_recursive_777() {
+        let report = analyze_script("chmod -v -R 777 /tmp/file", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::High);
+    }
+
+    #[test]
+    fn test_analyze_high_chmod_long_flag_777() {
+        let report = analyze_script("chmod --recursive 777 /tmp/file", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::High);
+    }
+
+    #[test]
+    fn test_analyze_high_chmod_octal_0777() {
+        let report = analyze_script("chmod 0777 /tmp/file", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::High);
+    }
+
+    #[test]
+    fn test_analyze_high_chmod_quoted_777() {
+        let report = analyze_script(r#"chmod "777" /tmp/file"#, &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::High);
+    }
+
+    #[test]
+    fn test_analyze_high_chmod_line_continuation_777() {
+        let report = analyze_script("chmod -R \\\n777 /tmp/file", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::High);
+    }
+
+    #[test]
+    fn test_analyze_high_chmod_symbolic_world_writable() {
+        let report = analyze_script("chmod o+w /tmp/file", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::High);
+    }
+
+    #[test]
+    fn test_analyze_high_chmod_symbolic_all_world_writable() {
+        let report = analyze_script("chmod a=rwx /tmp/file", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::High);
+    }
+
+    #[test]
+    fn test_analyze_safe_chmod_non_world_writable() {
+        let report = analyze_script("chmod 755 /tmp/file", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Safe);
+    }
+
+    #[test]
+    fn test_analyze_safe_chmod_reference_mode_target_named_777() {
+        let report = analyze_script("chmod --reference=/tmp/ref 777", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Safe);
     }
 
     #[test]
