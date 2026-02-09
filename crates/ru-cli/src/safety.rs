@@ -636,8 +636,9 @@ const RM_WILDCARD_WARNING: &str =
     "Recursively removes files with wildcard - may delete more than intended";
 const RM_PRIVILEGED_WARNING: &str =
     "Privileged recursive deletion - dangerous with elevated permissions";
-const CRITICAL_SYSTEM_DIRS: [&str; 10] =
-    ["home", "etc", "root", "var", "usr", "boot", "bin", "sbin", "lib", "lib64"];
+const CRITICAL_SYSTEM_DIRS: [&str; 10] = [
+    "home", "etc", "root", "var", "usr", "boot", "bin", "sbin", "lib", "lib64",
+];
 
 #[derive(Debug, Default, Clone, Copy)]
 struct RmRiskSummary {
@@ -824,13 +825,13 @@ fn split_shell_commands(script: &str) -> Vec<String> {
 fn split_shell_words(command: &str) -> Vec<String> {
     let mut words = Vec::new();
     let mut current = String::new();
-    let mut chars = command.chars();
+    let chars = command.chars();
     let mut in_single = false;
     let mut in_double = false;
     let mut escaped = false;
     let mut at_word_start = true;
 
-    while let Some(ch) = chars.next() {
+    for ch in chars {
         if escaped {
             current.push('\\');
             current.push(ch);
