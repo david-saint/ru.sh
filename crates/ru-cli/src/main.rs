@@ -17,7 +17,7 @@ use safety::{RiskLevel, SafetyReport};
 use sha2::{Digest, Sha256};
 use shell::Shell;
 use std::env;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::time::Instant;
 
 #[derive(Parser, Debug)]
@@ -641,20 +641,17 @@ async fn run_prompt(cli: Cli) -> Result<()> {
             return Ok(());
         }
 
-        // Block high-risk scripts without --force
-        if report.requires_force() && !cli.force {
+        // Block --yes in non-interactive contexts to prevent script abuse
+        if !is_interactive_terminal() {
             println!(
                 "{}",
-                format!(
-                    "Cannot auto-execute {} risk script without --force flag.",
-                    report.overall_risk
-                )
-                .red()
-                .bold()
+                "Cannot auto-execute with -y in a non-interactive session."
+                    .red()
+                    .bold()
             );
             println!(
                 "{}",
-                "Use: ru -y --force -p \"...\" to execute dangerous scripts.".dimmed()
+                "Run without -y to review and confirm interactively.".dimmed()
             );
             log_execution(
                 &prompt,
@@ -667,15 +664,90 @@ async fn run_prompt(cli: Cli) -> Result<()> {
             return Ok(());
         }
 
-        let timeout_secs = config.get_script_timeout();
-        let exit_code =
-            execute_script(&generated_script, Some(&script_hash), timeout_secs, &shell).await?;
+        // Only Safe scripts can auto-execute with -y
+        if report.overall_risk == RiskLevel::Safe {
+            let timeout_secs = config.get_script_timeout();
+            let exit_code =
+                execute_script(&generated_script, Some(&script_hash), timeout_secs, &shell).await?;
+            log_execution(
+                &prompt,
+                &generated_script,
+                &report,
+                true,
+                exit_code,
+                Some(api_duration_ms),
+            );
+            return Ok(());
+        }
+
+        // High/Critical risk still require manual confirmation even with --force
+        if report.requires_force() {
+            if !cli.force {
+                println!(
+                    "{}",
+                    format!(
+                        "Cannot proceed with {} risk script using -y without --force.",
+                        report.overall_risk
+                    )
+                    .red()
+                    .bold()
+                );
+                println!(
+                    "{}",
+                    "Run without -y to review and confirm interactively.".dimmed()
+                );
+                log_execution(
+                    &prompt,
+                    &generated_script,
+                    &report,
+                    false,
+                    None,
+                    Some(api_duration_ms),
+                );
+                return Ok(());
+            }
+
+            println!(
+                "{}",
+                "High-risk scripts always require manual confirmation. --force does not bypass confirmation."
+                    .yellow()
+                    .bold()
+            );
+
+            let exit_code =
+                prompt_high_risk_execution(&generated_script, &report, &api_key, &script_hash, &shell)
+                    .await?;
+            log_execution(
+                &prompt,
+                &generated_script,
+                &report,
+                exit_code.is_some(),
+                exit_code,
+                Some(api_duration_ms),
+            );
+            return Ok(());
+        }
+
+        // Low/Medium risk still require an interactive review
+        println!(
+            "{}",
+            format!(
+                "Cannot auto-execute {} risk script with -y. Please review first.",
+                report.overall_risk
+            )
+            .yellow()
+            .bold()
+        );
+        println!(
+            "{}",
+            "Run without -y to review and confirm interactively.".dimmed()
+        );
         log_execution(
             &prompt,
             &generated_script,
             &report,
-            true,
-            exit_code,
+            false,
+            None,
             Some(api_duration_ms),
         );
         return Ok(());
@@ -1272,6 +1344,10 @@ fn select_theme() -> ColorfulTheme {
         inactive_item_prefix: console::style("  ".to_string()),
         ..ColorfulTheme::default()
     }
+}
+
+fn is_interactive_terminal() -> bool {
+    io::stdin().is_terminal() && io::stdout().is_terminal()
 }
 
 /// Get usable content width for bordered output, accounting for prefix columns.
