@@ -17,3 +17,8 @@
 **Vulnerability:** The regex for `rm -rf /` allowed bypassing detection by appending a comment character `#` immediately after the path (e.g., `rm -rf /#`), as `#` was not included in the terminator set `(\s|[;&|]|$)`.
 **Learning:** In shell, `#` can start a comment immediately after a token without whitespace. Security regexes must account for `#` as a terminator even without preceding whitespace.
 **Prevention:** Include `#` in the set of terminators: `(\s|[;&|#]|$)`.
+
+## 2025-05-29 - Regex Bypass via Argument Reordering
+**Vulnerability:** The regex for detecting `rm -rf /` only matched if the flags (`-rf`) appeared *before* the target path (e.g., `rm -rf /`). This failed to detect cases where flags appeared after the path (`rm / -rf`) or were mixed (`rm -v / -rf`), which are valid shell syntax.
+**Learning:** Regex-based security checks must account for flexible command-line syntax where flags and arguments can be interleaved or reordered. Rigid assumptions about argument order create easy bypasses.
+**Prevention:** Use multiple regex patterns or more flexible patterns that detect dangerous flags anywhere in the command string relative to the target argument, ensuring they are part of the same command (not separated by `;` or `|`).

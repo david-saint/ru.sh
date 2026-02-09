@@ -216,15 +216,33 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
         // ================================================================
 
         // === CRITICAL: System destruction ===
+        // rm / with recursive/force flags (flags before path)
         DangerPattern {
-            pattern: r"rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+/(\s|[;&|#]|$)",
+            pattern: r"rm\s+([^;&|\n]*\s+)?-[a-zA-Z-]*[rf][a-zA-Z-]*\s+([^;&|\n]*\s+)?/(\s|[;&|#]|$)",
             level: RiskLevel::Critical,
             category: WarningCategory::SystemDestruction,
             description: "Removes the root filesystem - will destroy the system",
             scope: ShellScope::Unix,
         },
+        // rm / with recursive/force flags (flags after path)
         DangerPattern {
-            pattern: r"rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+/(home|etc|root|var|usr|boot|bin|sbin|lib|lib64)(/|\s|[;&|#]|$)",
+            pattern: r"rm\s+([^;&|\n]*\s+)?/\s+([^;&|\n]*\s+)?-[a-zA-Z-]*[rf][a-zA-Z-]*",
+            level: RiskLevel::Critical,
+            category: WarningCategory::SystemDestruction,
+            description: "Removes the root filesystem - will destroy the system",
+            scope: ShellScope::Unix,
+        },
+        // rm /critical with recursive/force flags (flags before path)
+        DangerPattern {
+            pattern: r"rm\s+([^;&|\n]*\s+)?-[a-zA-Z-]*[rf][a-zA-Z-]*\s+([^;&|\n]*\s+)?/(home|etc|root|var|usr|boot|bin|sbin|lib|lib64)(/|\s|[;&|#]|$)",
+            level: RiskLevel::Critical,
+            category: WarningCategory::SystemDestruction,
+            description: "Removes critical system directories",
+            scope: ShellScope::Unix,
+        },
+        // rm /critical with recursive/force flags (flags after path)
+        DangerPattern {
+            pattern: r"rm\s+([^;&|\n]*\s+)?/(home|etc|root|var|usr|boot|bin|sbin|lib|lib64)(/|\s+)([^;&|\n]*\s+)?-[a-zA-Z-]*[rf][a-zA-Z-]*",
             level: RiskLevel::Critical,
             category: WarningCategory::SystemDestruction,
             description: "Removes critical system directories",
@@ -259,8 +277,17 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
             scope: ShellScope::Unix,
         },
         // === HIGH: Data loss / Privilege escalation ===
+        // rm * with recursive/force flags (flags before wildcard)
         DangerPattern {
-            pattern: r"rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+\*",
+            pattern: r"rm\s+([^;&|\n]*\s+)?-[a-zA-Z-]*[rf][a-zA-Z-]*\s+([^;&|\n]*\s+)?\*",
+            level: RiskLevel::High,
+            category: WarningCategory::DataLoss,
+            description: "Recursively removes files with wildcard - may delete more than intended",
+            scope: ShellScope::Unix,
+        },
+        // rm * with recursive/force flags (flags after wildcard)
+        DangerPattern {
+            pattern: r"rm\s+([^;&|\n]*\s+)?\*\s+([^;&|\n]*\s+)?-[a-zA-Z-]*[rf][a-zA-Z-]*",
             level: RiskLevel::High,
             category: WarningCategory::DataLoss,
             description: "Recursively removes files with wildcard - may delete more than intended",
@@ -1078,6 +1105,29 @@ mod tests {
             report.overall_risk,
             RiskLevel::Critical,
             "rm -rf /etc; should be Critical"
+        );
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_after_args() {
+        // This checks if "rm / -rf" (flags after path) is caught
+        // GNU rm allows options after non-option arguments
+        let report = analyze_script("rm / -rf", &Shell::Bash);
+        assert_eq!(
+            report.overall_risk,
+            RiskLevel::Critical,
+            "rm / -rf should be Critical"
+        );
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_mixed_flags() {
+        // This checks if "rm -v -rf /" (safe flag before dangerous flag) is caught
+        let report = analyze_script("rm -v -rf /", &Shell::Bash);
+        assert_eq!(
+            report.overall_risk,
+            RiskLevel::Critical,
+            "rm -v -rf / should be Critical"
         );
     }
 }
