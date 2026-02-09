@@ -714,9 +714,14 @@ async fn run_prompt(cli: Cli) -> Result<()> {
                     .bold()
             );
 
-            let exit_code =
-                prompt_high_risk_execution(&generated_script, &report, &api_key, &script_hash, &shell)
-                    .await?;
+            let exit_code = prompt_high_risk_execution(
+                &generated_script,
+                &report,
+                &api_key,
+                &script_hash,
+                &shell,
+            )
+            .await?;
             log_execution(
                 &prompt,
                 &generated_script,
