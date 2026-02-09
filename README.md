@@ -38,29 +38,6 @@ cd ru.sh
 cargo install --path crates/ru-cli
 ```
 
-## 🐚 Shell Support
-
-ru.sh automatically detects your current shell but can be configured for others:
-
-| Shell          | Binary | Platform                     |
-| -------------- | ------ | ---------------------------- |
-| **Bash**       | `bash` | Unix / macOS / Windows (WSL) |
-| **Zsh**        | `zsh`  | Unix / macOS                 |
-| **Fish**       | `fish` | Unix / macOS                 |
-| **Sh**         | `sh`   | Unix / macOS                 |
-| **PowerShell** | `pwsh` | Windows / Unix / macOS       |
-| **Cmd**        | `cmd`  | Windows                      |
-
-**Override shell detection:**
-
-```bash
-# Per-request
-ru -p "list files" --shell zsh
-
-# Persistent default
-ru config set shell fish
-```
-
 ## 🚀 Usage
 
 ### 1. Setup API Key
@@ -109,6 +86,29 @@ ru -p "echo hello" -y
 
 # Force execution of high-risk scripts (requires --force)
 ru -p "rm -rf /" -y --force
+```
+
+## 🐚 Shell Support
+
+ru.sh automatically detects your current shell but can be configured for others:
+
+| Shell          | Binary | Platform                     |
+| -------------- | ------ | ---------------------------- |
+| **Bash**       | `bash` | Unix / macOS / Windows (WSL) |
+| **Zsh**        | `zsh`  | Unix / macOS                 |
+| **Fish**       | `fish` | Unix / macOS                 |
+| **Sh**         | `sh`   | Unix / macOS                 |
+| **PowerShell** | `pwsh` | Windows / Unix / macOS       |
+| **Cmd**        | `cmd`  | Windows                      |
+
+**Override shell detection:**
+
+```bash
+# Per-request
+ru -p "list files" --shell zsh
+
+# Persistent default
+ru config set shell fish
 ```
 
 ## 🛡️ Security
