@@ -22,3 +22,8 @@
 **Vulnerability:** The regex for detecting `rm -rf /` only matched if the flags (`-rf`) appeared *before* the target path (e.g., `rm -rf /`). This failed to detect cases where flags appeared after the path (`rm / -rf`) or were mixed (`rm -v / -rf`), which are valid shell syntax.
 **Learning:** Regex-based security checks must account for flexible command-line syntax where flags and arguments can be interleaved or reordered. Rigid assumptions about argument order create easy bypasses.
 **Prevention:** Use multiple regex patterns or more flexible patterns that detect dangerous flags anywhere in the command string relative to the target argument, ensuring they are part of the same command (not separated by `;` or `|`).
+
+## 2025-05-29 - Regex Bypass via Argument Order (chmod)
+**Vulnerability:** The regex for detecting insecure permissions (`chmod 777`) assumed that the permission mode immediately followed the command (`chmod\s+777`). This failed to detect cases where flags were present (e.g., `chmod -R 777`), allowing recursive world-writable permissions to bypass checks.
+**Learning:** Security regexes for shell commands must account for optional flags and their position relative to critical arguments. Assumptions about "command then argument" are often violated by valid shell syntax allowing flags.
+**Prevention:** Use regex patterns that allow for optional flags between the command and the critical argument (e.g., `(?:-[a-zA-Z0-9-]+\s+)*`) or use a parser-based approach.

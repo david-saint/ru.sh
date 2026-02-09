@@ -254,10 +254,10 @@ static DANGER_PATTERNS: LazyLock<Vec<DangerPattern>> = LazyLock::new(|| {
             scope: ShellScope::Unix,
         },
         DangerPattern {
-            pattern: r"chmod\s+777\s+",
+            pattern: r"chmod\s+(?:-[a-zA-Z0-9-]+\s+)*777\b",
             level: RiskLevel::High,
             category: WarningCategory::InsecurePermissions,
-            description: "Setting world-writable permissions - severe security risk",
+            description: "Setting world-writable permissions (777) - severe security risk",
             scope: ShellScope::Unix,
         },
         DangerPattern {
@@ -1335,6 +1335,24 @@ mod tests {
     #[test]
     fn test_analyze_high_chmod_777() {
         let report = analyze_script("chmod 777 /tmp/file", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::High);
+    }
+
+    #[test]
+    fn test_analyze_high_chmod_recursive_777() {
+        let report = analyze_script("chmod -R 777 /tmp/file", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::High);
+    }
+
+    #[test]
+    fn test_analyze_high_chmod_verbose_recursive_777() {
+        let report = analyze_script("chmod -v -R 777 /tmp/file", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::High);
+    }
+
+    #[test]
+    fn test_analyze_high_chmod_long_flag_777() {
+        let report = analyze_script("chmod --recursive 777 /tmp/file", &Shell::Bash);
         assert_eq!(report.overall_risk, RiskLevel::High);
     }
 
