@@ -81,10 +81,10 @@ ru -p "Delete all node_modules recursively" --dry-run
 **Skip Confirmation (Use with Caution)**:
 
 ```bash
-# Auto-execute safe scripts
+# Auto-execute Safe scripts only
 ru -p "echo hello" -y
 
-# Force execution of high-risk scripts (requires --force)
+# Non-safe scripts require interactive confirmation (even with --force)
 ru -p "rm -rf /" -y --force
 ```
 
@@ -118,10 +118,10 @@ ru config set shell fish
 | Level        | Description                                | Confirmation Required       |
 | ------------ | ------------------------------------------ | --------------------------- |
 | **Safe**     | Read-only or trivial commands              | Optional (with `-y`)        |
-| **Low**      | Minimal impact operations                  | Optional (with `-y`)        |
+| **Low**      | Minimal impact operations                  | Yes                         |
 | **Medium**   | Standard file/system changes               | Yes                         |
 | **High**     | Potentially dangerous (e.g. `rm`, `chmod`) | Yes (Requires typing "yes") |
-| **Critical** | Highly destructive (e.g. `rm -rf /`)       | Yes (Requires `--force`)    |
+| **Critical** | Highly destructive (e.g. `rm -rf /`)       | Yes (Requires typing "yes") |
 
 ### Prompt Injection Protection
 
