@@ -1089,36 +1089,31 @@ fn mask_api_key_for_display(api_key: &str) -> String {
     const PREFIX_CHARS: usize = 6;
     const SUFFIX_CHARS: usize = 4;
 
-    if api_key.chars().count() <= MASK_THRESHOLD_CHARS {
+    let mut char_indices = api_key.char_indices();
+
+    // Check if we have at least PREFIX_CHARS + 1 characters
+    // We want the byte index of the character at index PREFIX_CHARS (which is the (PREFIX_CHARS+1)th char)
+    // This gives us the split point after PREFIX_CHARS.
+    let (prefix_end, _) = match char_indices.nth(PREFIX_CHARS) {
+        Some(val) => val,
+        None => return "[set]".to_string(),
+    };
+
+    // We have consumed PREFIX_CHARS + 1 characters.
+    // Now check if the total length is > MASK_THRESHOLD_CHARS.
+    if char_indices
+        .clone()
+        .nth(MASK_THRESHOLD_CHARS - PREFIX_CHARS - 1)
+        .is_none()
+    {
         return "[set]".to_string();
     }
 
-    let prefix_end = byte_index_after_n_chars(api_key, PREFIX_CHARS);
-    let suffix_start = byte_index_before_last_n_chars(api_key, SUFFIX_CHARS);
+    // Find suffix start using reverse iterator
+    // This is O(SUFFIX_CHARS) which is small constant.
+    let (suffix_start, _) = api_key.char_indices().rev().nth(SUFFIX_CHARS - 1).unwrap();
+
     format!("{}...{}", &api_key[..prefix_end], &api_key[suffix_start..])
-}
-
-fn byte_index_after_n_chars(s: &str, n: usize) -> usize {
-    if n == 0 {
-        return 0;
-    }
-    s.char_indices()
-        .nth(n)
-        .map(|(idx, _)| idx)
-        .unwrap_or(s.len())
-}
-
-fn byte_index_before_last_n_chars(s: &str, n: usize) -> usize {
-    if n == 0 {
-        return s.len();
-    }
-
-    for (count, (idx, _)) in s.char_indices().rev().enumerate() {
-        if count + 1 == n {
-            return idx;
-        }
-    }
-    0
 }
 
 /// Resolve shell from: CLI flag > config file > auto-detect
