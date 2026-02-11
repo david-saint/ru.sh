@@ -191,9 +191,7 @@ struct ChatMessageResponse {
 }
 
 /// Send HTTP request with retry logic and exponential backoff
-async fn send_with_retry(
-    request_builder: reqwest::RequestBuilder,
-) -> Result<reqwest::Response> {
+async fn send_with_retry(request_builder: reqwest::RequestBuilder) -> Result<reqwest::Response> {
     let mut attempts = 0;
     let mut delay = BASE_RETRY_DELAY;
 
