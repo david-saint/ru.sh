@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use chrono::Utc;
+use chrono::{Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
@@ -101,16 +101,40 @@ impl UsageStats {
 
     /// Reset daily/monthly counters if the date has changed
     fn reset_if_needed(&mut self) {
-        let today = Utc::now().format("%Y-%m-%d").to_string();
-        let this_month = Utc::now().format("%Y-%m").to_string();
+        let now = Utc::now();
+        let today = now.date_naive();
 
         // Reset daily counter if date changed
-        if self.last_request_date.as_ref() != Some(&today) {
+        let needs_daily_reset = match &self.last_request_date {
+            Some(d_str) => match NaiveDate::parse_from_str(d_str, "%Y-%m-%d") {
+                Ok(last_date) => last_date != today,
+                Err(_) => true,
+            },
+            None => true,
+        };
+
+        if needs_daily_reset {
             self.requests_today = 0;
         }
 
         // Reset monthly counter if month changed
-        if self.last_request_month.as_ref() != Some(&this_month) {
+        let needs_monthly_reset = match &self.last_request_month {
+            Some(m_str) => {
+                let mut parts = m_str.split('-');
+                match (parts.next(), parts.next()) {
+                    (Some(y_str), Some(m_str)) => {
+                        match (y_str.parse::<i32>(), m_str.parse::<u32>()) {
+                            (Ok(year), Ok(month)) => year != now.year() || month != now.month(),
+                            _ => true,
+                        }
+                    }
+                    _ => true,
+                }
+            }
+            None => true,
+        };
+
+        if needs_monthly_reset {
             self.requests_this_month = 0;
         }
     }
@@ -332,5 +356,29 @@ mod tests {
         assert_eq!(loaded.total_requests, stats.total_requests);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_reset_invalid_date() {
+        let mut stats = UsageStats {
+            requests_today: 50,
+            last_request_date: Some("invalid-date".to_string()),
+            ..Default::default()
+        };
+
+        stats.reset_if_needed();
+        assert_eq!(stats.requests_today, 0); // Should reset
+    }
+
+    #[test]
+    fn test_reset_invalid_month() {
+        let mut stats = UsageStats {
+            requests_this_month: 500,
+            last_request_month: Some("invalid-month".to_string()),
+            ..Default::default()
+        };
+
+        stats.reset_if_needed();
+        assert_eq!(stats.requests_this_month, 0); // Should reset
     }
 }
