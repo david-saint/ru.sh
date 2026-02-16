@@ -27,3 +27,8 @@
 **Vulnerability:** The regex for detecting insecure permissions (`chmod 777`) assumed that the permission mode immediately followed the command (`chmod\s+777`). This failed to detect cases where flags were present (e.g., `chmod -R 777`), allowing recursive world-writable permissions to bypass checks.
 **Learning:** Security regexes for shell commands must account for optional flags and their position relative to critical arguments. Assumptions about "command then argument" are often violated by valid shell syntax allowing flags.
 **Prevention:** Use regex patterns that allow for optional flags between the command and the critical argument (e.g., `(?:-[a-zA-Z0-9-]+\s+)*`) or use a parser-based approach.
+
+## 2025-05-30 - Mixed Content Execution in LLM Output
+**Vulnerability:** The `strip_code_blocks` function only checked if the response *started* with a markdown code block. If the LLM included introductory text (e.g., "Here is the script:\n```..."), the entire response was returned as the script, causing the shell to attempt executing the explanatory text, potentially leading to errors or unintended commands.
+**Learning:** LLMs frequently disobey "output only code" instructions. Input sanitization must aggressively search for the expected format (code blocks) within the entire response, rather than assuming the response *is* the format.
+**Prevention:** Implement a search for the first valid code block delimiter anywhere in the string and extract only the content within the block, discarding all surrounding text.
