@@ -635,10 +635,32 @@ const CHMOD_WORLD_WRITABLE_WARNING: &str =
 /// List of critical system directories that trigger CRITICAL risk if targeted for deletion.
 const CRITICAL_SYSTEM_DIRS: [&str; 25] = [
     // Standard Linux/Unix
-    "home", "etc", "root", "var", "usr", "boot", "bin", "sbin", "lib", "lib64",
-    "sys", "proc", "dev", "run", "opt", "srv", "mnt", "media", "lost+found",
+    "home",
+    "etc",
+    "root",
+    "var",
+    "usr",
+    "boot",
+    "bin",
+    "sbin",
+    "lib",
+    "lib64",
+    "sys",
+    "proc",
+    "dev",
+    "run",
+    "opt",
+    "srv",
+    "mnt",
+    "media",
+    "lost+found",
     // macOS specific
-    "System", "Library", "Applications", "Users", "Volumes", "private",
+    "System",
+    "Library",
+    "Applications",
+    "Users",
+    "Volumes",
+    "private",
 ];
 
 #[derive(Debug, Default, Clone, Copy)]
