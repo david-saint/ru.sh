@@ -108,12 +108,13 @@ impl UsageStats {
             self.requests_today = 0;
         }
 
-        // Reset monthly counter if month changed
-        if let Some(last_date) = self.last_request_date {
-            let last_month = (last_date.year(), last_date.month());
-            if last_month != this_month {
-                self.requests_this_month = 0;
-            }
+        // Reset monthly counter if month changed or the last date is missing.
+        let same_month = self
+            .last_request_date
+            .map(|last_date| (last_date.year(), last_date.month()) == this_month)
+            .unwrap_or(false);
+        if !same_month {
+            self.requests_this_month = 0;
         }
     }
 
@@ -316,6 +317,18 @@ mod tests {
 
         stats.reset_if_needed();
         assert_eq!(stats.requests_today, 50);
+    }
+
+    #[test]
+    fn test_reset_monthly_counter_when_last_date_missing() {
+        let mut stats = UsageStats {
+            requests_this_month: 42,
+            last_request_date: None,
+            ..Default::default()
+        };
+
+        stats.reset_if_needed();
+        assert_eq!(stats.requests_this_month, 0);
     }
 
     #[test]
