@@ -32,7 +32,7 @@ fn build_system_prompt(shell: &Shell) -> String {
             "bash",
             "1. Output ONLY the bash command/script, nothing else\n\
              2. Do not include explanations, comments, or markdown formatting\n\
-             3. Do not wrap output in code blocks\n\
+             3. If output spans multiple lines, wrap ONLY the script in a fenced code block; otherwise no markdown\n\
              4. Produce a single command or pipeline when possible\n\
              5. Use common Unix utilities (ls, grep, find, awk, sed, etc.)\n\
              6. Handle edge cases appropriately (spaces in filenames, etc.)",
@@ -45,7 +45,7 @@ fn build_system_prompt(shell: &Shell) -> String {
             "zsh",
             "1. Output ONLY the zsh command/script, nothing else\n\
              2. Do not include explanations, comments, or markdown formatting\n\
-             3. Do not wrap output in code blocks\n\
+             3. If output spans multiple lines, wrap ONLY the script in a fenced code block; otherwise no markdown\n\
              4. Produce a single command or pipeline when possible\n\
              5. Use common Unix utilities (ls, grep, find, awk, sed, etc.)\n\
              6. You may use zsh-specific features (globbing qualifiers, parameter expansion flags, etc.)\n\
@@ -59,7 +59,7 @@ fn build_system_prompt(shell: &Shell) -> String {
             "POSIX sh",
             "1. Output ONLY POSIX-compatible shell commands, nothing else\n\
              2. Do not include explanations, comments, or markdown formatting\n\
-             3. Do not wrap output in code blocks\n\
+             3. If output spans multiple lines, wrap ONLY the script in a fenced code block; otherwise no markdown\n\
              4. Produce a single command or pipeline when possible\n\
              5. Use only POSIX utilities and syntax — no bashisms (no [[ ]], no $(), prefer ``, no arrays)\n\
              6. Handle edge cases appropriately (spaces in filenames, etc.)",
@@ -72,7 +72,7 @@ fn build_system_prompt(shell: &Shell) -> String {
             "fish",
             "1. Output ONLY fish shell commands, nothing else\n\
              2. Do not include explanations, comments, or markdown formatting\n\
-             3. Do not wrap output in code blocks\n\
+             3. If output spans multiple lines, wrap ONLY the script in a fenced code block; otherwise no markdown\n\
              4. Produce a single command or pipeline when possible\n\
              5. Use fish syntax: 'set' not 'export', '(command)' not '$(command)', 'and'/'or' or '; and'/'; or' instead of '&&'/'||'\n\
              6. Use 'begin/end' blocks instead of '{}'  braces for grouping\n\
@@ -86,7 +86,7 @@ fn build_system_prompt(shell: &Shell) -> String {
             "PowerShell",
             "1. Output ONLY PowerShell commands/scripts, nothing else\n\
              2. Do not include explanations, comments, or markdown formatting\n\
-             3. Do not wrap output in code blocks\n\
+             3. If output spans multiple lines, wrap ONLY the script in a fenced code block; otherwise no markdown\n\
              4. Produce a single command or pipeline when possible\n\
              5. Use PowerShell cmdlets (Get-ChildItem, Select-String, Get-Content, etc.) instead of Unix utilities\n\
              6. Use PowerShell syntax: $variable, @(), |, Where-Object, ForEach-Object, etc.\n\
@@ -101,7 +101,7 @@ fn build_system_prompt(shell: &Shell) -> String {
             "cmd.exe (Windows Command Prompt)",
             "1. Output ONLY cmd.exe commands, nothing else\n\
              2. Do not include explanations, comments, or markdown formatting\n\
-             3. Do not wrap output in code blocks\n\
+             3. If output spans multiple lines, wrap ONLY the script in a fenced code block; otherwise no markdown\n\
              4. Produce a single command or pipeline when possible\n\
              5. Use cmd.exe builtins and Windows utilities (dir, findstr, for, copy, xcopy, robocopy, etc.)\n\
              6. Use cmd.exe syntax: %variable%, if/else, for /f, etc.\n\
@@ -380,8 +380,9 @@ pub async fn generate_script(
         .map(|c| c.message.content)
         .unwrap_or_default();
 
-    // Clean up the response - remove markdown code blocks if present
-    let script = strip_code_blocks(content);
+    // Extract executable script content and reject ambiguous mixed prose output.
+    let script = sanitize_generated_script_response(content)
+        .context("LLM returned an ambiguous or malformed script response")?;
 
     Ok(script)
 }
@@ -454,10 +455,7 @@ pub async fn explain_script(
     Ok(content.trim().to_string())
 }
 
-/// Strip markdown code blocks from the response
-fn strip_code_blocks(content: String) -> String {
-    let trimmed = content.trim();
-
+fn extract_first_fenced_code_block(trimmed: &str) -> Option<String> {
     // Look for the start of a code block anywhere in the string
     if let Some(start_fence) = trimmed.find("```") {
         // Find the end of the opening fence line (e.g. ```bash\n)
@@ -466,7 +464,7 @@ fn strip_code_blocks(content: String) -> String {
 
             // Check if there is anything after the opening line
             if content_start >= trimmed.len() {
-                return String::new();
+                return Some(String::new());
             }
 
             let content_part = &trimmed[content_start..];
@@ -474,7 +472,7 @@ fn strip_code_blocks(content: String) -> String {
             // Handle empty block case where closing fence immediately follows opening line
             // We check if the content starts with "```" (which would be the closing fence)
             if content_part.starts_with("```") {
-                return String::new();
+                return Some(String::new());
             }
 
             // Find the closing fence. We search for "\n```" which handles both
@@ -488,11 +486,54 @@ fn strip_code_blocks(content: String) -> String {
             };
 
             if content_start < content_end {
-                return trimmed[content_start..content_end].trim().to_string();
+                return Some(trimmed[content_start..content_end].trim().to_string());
             } else {
-                return String::new();
+                return Some(String::new());
             }
         }
+    }
+
+    None
+}
+
+/// Extract executable script content from an LLM response.
+///
+/// Security note: Multi-line unfenced responses are rejected because prose and shell commands
+/// cannot be safely separated without a reliable delimiter.
+fn sanitize_generated_script_response(content: String) -> Result<String> {
+    let trimmed = content.trim();
+
+    if trimmed.is_empty() {
+        bail!("Model returned an empty response");
+    }
+
+    if let Some(script) = extract_first_fenced_code_block(trimmed) {
+        return Ok(script);
+    }
+
+    if trimmed.contains("```") {
+        bail!("Model returned a malformed fenced code block");
+    }
+
+    let has_multiple_nonempty_lines = trimmed
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .nth(1)
+        .is_some();
+
+    if has_multiple_nonempty_lines {
+        bail!("Model returned a multi-line unfenced response");
+    }
+
+    Ok(trimmed.to_string())
+}
+
+/// Strip markdown code blocks from the response
+fn strip_code_blocks(content: String) -> String {
+    let trimmed = content.trim();
+
+    if let Some(script) = extract_first_fenced_code_block(trimmed) {
+        return script;
     }
 
     // Optimization: If no trimming was needed, return original String
@@ -696,5 +737,44 @@ mod tests {
     fn test_strip_code_blocks_empty_block_with_trailing() {
         let input = "```bash\n```\nExplanation";
         assert_eq!(strip_code_blocks(input.to_string()), "");
+    }
+
+    #[test]
+    fn test_sanitize_generated_script_response_single_line_unfenced() {
+        let input = "ls -la";
+        assert_eq!(
+            sanitize_generated_script_response(input.to_string()).unwrap(),
+            "ls -la"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_generated_script_response_fenced_mixed_content() {
+        let input = "Here is the script:\n```bash\nls -la\n```\nThis lists files.";
+        assert_eq!(
+            sanitize_generated_script_response(input.to_string()).unwrap(),
+            "ls -la"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_generated_script_response_rejects_unfenced_mixed_multiline() {
+        let input = "Here is the script:\nls -la";
+        let err = sanitize_generated_script_response(input.to_string()).unwrap_err();
+        assert!(err.to_string().contains("multi-line unfenced"));
+    }
+
+    #[test]
+    fn test_sanitize_generated_script_response_rejects_unfenced_multiline_script() {
+        let input = "echo one\necho two";
+        let err = sanitize_generated_script_response(input.to_string()).unwrap_err();
+        assert!(err.to_string().contains("multi-line unfenced"));
+    }
+
+    #[test]
+    fn test_sanitize_generated_script_response_rejects_malformed_fence() {
+        let input = "```bash ls -la ```";
+        let err = sanitize_generated_script_response(input.to_string()).unwrap_err();
+        assert!(err.to_string().contains("malformed fenced"));
     }
 }

@@ -1328,15 +1328,49 @@ fn normalize_unix_absolute_path(path: &str) -> Option<String> {
 
 fn is_critical_system_path(normalized_path: &str) -> bool {
     for dir in CRITICAL_SYSTEM_DIRS {
-        let base = format!("/{dir}");
-        if normalized_path == base {
+        if matches_critical_system_dir_path(normalized_path, dir, is_macos_critical_root(dir)) {
             return true;
         }
-        if let Some(rest) = normalized_path.strip_prefix(&base)
-            && rest.starts_with('/')
-        {
+    }
+
+    false
+}
+
+fn is_macos_critical_root(dir: &str) -> bool {
+    matches!(
+        dir,
+        "System" | "Library" | "Applications" | "Users" | "Volumes" | "private"
+    )
+}
+
+fn matches_critical_system_dir_path(
+    normalized_path: &str,
+    dir: &str,
+    case_insensitive: bool,
+) -> bool {
+    let base = format!("/{dir}");
+
+    if case_insensitive {
+        if normalized_path.eq_ignore_ascii_case(&base) {
             return true;
         }
+
+        if normalized_path.len() > base.len() {
+            let (prefix, rest) = normalized_path.split_at(base.len());
+            return prefix.eq_ignore_ascii_case(&base) && rest.starts_with('/');
+        }
+
+        return false;
+    }
+
+    if normalized_path == base {
+        return true;
+    }
+
+    if let Some(rest) = normalized_path.strip_prefix(&base)
+        && rest.starts_with('/')
+    {
+        return true;
     }
 
     false
@@ -1607,6 +1641,30 @@ mod tests {
     fn test_analyze_critical_rm_rf_macos_system() {
         let report = analyze_script("rm -rf /System", &Shell::Bash);
         assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_rf_macos_system_lowercase() {
+        let report = analyze_script("rm -rf /system", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_rf_macos_library_nested_lowercase() {
+        let report = analyze_script("rm -rf /library/preferences", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_safe_rm_rf_macos_prefix_boundary() {
+        let report = analyze_script("rm -rf /systemd", &Shell::Bash);
+        assert_ne!(report.overall_risk, RiskLevel::Critical);
+        assert!(
+            !report
+                .warnings
+                .iter()
+                .any(|w| w.description == RM_CRITICAL_DIR_WARNING)
+        );
     }
 
     #[test]
