@@ -519,11 +519,9 @@ fn log_rejection(category: InjectionCategory) {
 fn normalize_prompt(prompt: &str) -> String {
     // NFKC normalization to prevent homoglyph bypasses
     // e.g., "ⅰgnore" (Roman numeral) → "ignore"
-    let normalized: String = prompt.nfkc().collect();
-
-    // Strip zero-width characters that could be used to bypass detection
-    normalized
-        .chars()
+    // Chaining with filter to avoid double allocation
+    prompt
+        .nfkc()
         .filter(|c| {
             !matches!(
                 c,
