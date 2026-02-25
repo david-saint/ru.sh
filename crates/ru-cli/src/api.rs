@@ -191,16 +191,17 @@ struct ChatMessageResponse {
 }
 
 /// Send HTTP request with retry logic and exponential backoff
-async fn send_with_retry(
-    request_builder: impl Fn() -> reqwest::RequestBuilder,
-) -> Result<reqwest::Response> {
+async fn send_with_retry(request_builder: reqwest::RequestBuilder) -> Result<reqwest::Response> {
     let mut attempts = 0;
     let mut delay = BASE_RETRY_DELAY;
 
     loop {
         attempts += 1;
 
-        let result = request_builder().send().await;
+        let request = request_builder
+            .try_clone()
+            .ok_or_else(|| anyhow::anyhow!("Request body must be cloneable for retry"))?;
+        let result = request.send().await;
 
         match result {
             Ok(response) => {
@@ -356,17 +357,17 @@ pub async fn generate_script(
     };
 
     let api_key = api_key.to_string();
-    let response = send_with_retry(|| {
-        HTTP_CLIENT
-            .post(OPENROUTER_API_URL)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("Content-Type", "application/json")
-            .header("HTTP-Referer", "https://github.com/ru-sh/ru-cli")
-            .header("X-Title", "ru.sh CLI")
-            .json(&request)
-    })
-    .await
-    .context("Failed to call OpenRouter API")?;
+    let request_builder = HTTP_CLIENT
+        .post(OPENROUTER_API_URL)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .header("HTTP-Referer", "https://github.com/ru-sh/ru-cli")
+        .header("X-Title", "ru.sh CLI")
+        .json(&request);
+
+    let response = send_with_retry(request_builder)
+        .await
+        .context("Failed to call OpenRouter API")?;
 
     let chat_response: ChatResponse = response
         .json()
@@ -429,17 +430,17 @@ pub async fn explain_script(
     };
 
     let api_key = api_key.to_string();
-    let response = send_with_retry(|| {
-        HTTP_CLIENT
-            .post(OPENROUTER_API_URL)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("Content-Type", "application/json")
-            .header("HTTP-Referer", "https://github.com/ru-sh/ru-cli")
-            .header("X-Title", "ru.sh CLI")
-            .json(&request)
-    })
-    .await
-    .context("Failed to call OpenRouter API")?;
+    let request_builder = HTTP_CLIENT
+        .post(OPENROUTER_API_URL)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .header("HTTP-Referer", "https://github.com/ru-sh/ru-cli")
+        .header("X-Title", "ru.sh CLI")
+        .json(&request);
+
+    let response = send_with_retry(request_builder)
+        .await
+        .context("Failed to call OpenRouter API")?;
 
     let chat_response: ChatResponse = response
         .json()
