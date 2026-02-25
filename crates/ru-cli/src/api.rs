@@ -529,6 +529,7 @@ fn sanitize_generated_script_response(content: String) -> Result<String> {
 }
 
 /// Strip markdown code blocks from the response
+#[cfg(test)]
 fn strip_code_blocks(content: String) -> String {
     let trimmed = content.trim();
 
