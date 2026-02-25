@@ -631,8 +631,36 @@ const RM_PRIVILEGED_WARNING: &str =
     "Privileged recursive deletion - dangerous with elevated permissions";
 const CHMOD_WORLD_WRITABLE_WARNING: &str =
     "Setting world-writable permissions - severe security risk";
-const CRITICAL_SYSTEM_DIRS: [&str; 10] = [
-    "home", "etc", "root", "var", "usr", "boot", "bin", "sbin", "lib", "lib64",
+
+/// List of critical system directories that trigger CRITICAL risk if targeted for deletion.
+const CRITICAL_SYSTEM_DIRS: [&str; 25] = [
+    // Standard Linux/Unix
+    "home",
+    "etc",
+    "root",
+    "var",
+    "usr",
+    "boot",
+    "bin",
+    "sbin",
+    "lib",
+    "lib64",
+    "sys",
+    "proc",
+    "dev",
+    "run",
+    "opt",
+    "srv",
+    "mnt",
+    "media",
+    "lost+found",
+    // macOS specific
+    "System",
+    "Library",
+    "Applications",
+    "Users",
+    "Volumes",
+    "private",
 ];
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -1548,6 +1576,36 @@ mod tests {
     #[test]
     fn test_analyze_critical_rm_rf_etc() {
         let report = analyze_script("rm -rf /etc", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_rf_sys() {
+        let report = analyze_script("rm -rf /sys", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_rf_proc() {
+        let report = analyze_script("rm -rf /proc/1/stat", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_rf_dev() {
+        let report = analyze_script("rm -rf /dev", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_rf_macos_library() {
+        let report = analyze_script("rm -rf /Library", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_rf_macos_system() {
+        let report = analyze_script("rm -rf /System", &Shell::Bash);
         assert_eq!(report.overall_risk, RiskLevel::Critical);
     }
 
