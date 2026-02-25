@@ -1513,6 +1513,18 @@ mod tests {
     }
 
     #[test]
+    fn test_mask_api_key_for_display_exact_threshold() {
+        let key = "abcdefghijkl";
+        assert_eq!(mask_api_key_for_display(key), "[set]");
+    }
+
+    #[test]
+    fn test_mask_api_key_for_display_above_threshold() {
+        let key = "abcdefghijklm";
+        assert_eq!(mask_api_key_for_display(key), "abcdef...jklm");
+    }
+
+    #[test]
     fn test_resolve_model_cli_model_id() {
         // CLI model-id takes priority
         let config = Config::default();

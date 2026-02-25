@@ -718,6 +718,38 @@ mod tests {
     }
 
     #[test]
+    fn test_chat_request_builder_is_cloneable_for_retry() {
+        let request = ChatRequest {
+            model: "test/model".to_string(),
+            messages: vec![
+                ChatMessage {
+                    role: "system",
+                    content: "system".to_string(),
+                },
+                ChatMessage {
+                    role: "user",
+                    content: "user".to_string(),
+                },
+            ],
+            temperature: 0.0,
+            max_tokens: 16,
+        };
+
+        let builder = HTTP_CLIENT
+            .post(OPENROUTER_API_URL)
+            .header("Authorization", "Bearer test")
+            .header("Content-Type", "application/json")
+            .header("HTTP-Referer", "https://github.com/ru-sh/ru-cli")
+            .header("X-Title", "ru.sh CLI")
+            .json(&request);
+
+        assert!(
+            builder.try_clone().is_some(),
+            "JSON-backed request builders must remain cloneable for retry logic"
+        );
+    }
+
+    #[test]
     fn test_strip_code_blocks_with_trailing_text() {
         let input = "```bash\nls -la\n```\nExplanation: this lists files.";
         assert_eq!(strip_code_blocks(input.to_string()), "ls -la");
