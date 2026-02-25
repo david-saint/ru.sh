@@ -1,6 +1,8 @@
 mod api;
 mod config;
 mod history;
+mod prompt;
+use prompt::Prompter;
 mod safety;
 mod sanitize;
 mod shell;
@@ -11,13 +13,12 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use config::{Config, ExplainVerbosity, ModelPreset};
-use dialoguer::{Select, theme::ColorfulTheme};
 use history::ExecutionRecord;
 use safety::{RiskLevel, SafetyReport};
 use sha2::{Digest, Sha256};
 use shell::Shell;
 use std::env;
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, IsTerminal};
 use std::time::Instant;
 
 #[derive(Parser, Debug)]
@@ -524,7 +525,17 @@ fn handle_config(action: ConfigAction) -> Result<()> {
     Ok(())
 }
 
+fn get_prompter() -> Box<dyn Prompter> {
+    if std::env::var("RU_TEST_MODE").is_ok() {
+        Box::new(prompt::TestPrompter::new())
+    } else {
+        Box::new(prompt::RealPrompter)
+    }
+}
+
 async fn run_prompt(cli: Cli) -> Result<()> {
+    let prompter = get_prompter();
+
     // Spawn a background update check (non-blocking, throttled to once/24h)
     let update_handle = update::spawn_background_check();
 
@@ -720,6 +731,7 @@ async fn run_prompt(cli: Cli) -> Result<()> {
                 &api_key,
                 &script_hash,
                 &shell,
+                prompter.as_ref(),
             )
             .await?;
             log_execution(
@@ -777,9 +789,15 @@ async fn run_prompt(cli: Cli) -> Result<()> {
 
     // For high/critical risk, require explicit confirmation
     if report.requires_force() {
-        let exit_code =
-            prompt_high_risk_execution(&generated_script, &report, &api_key, &script_hash, &shell)
-                .await?;
+        let exit_code = prompt_high_risk_execution(
+            &generated_script,
+            &report,
+            &api_key,
+            &script_hash,
+            &shell,
+            prompter.as_ref(),
+        )
+        .await?;
         log_execution(
             &prompt,
             &generated_script,
@@ -796,6 +814,7 @@ async fn run_prompt(cli: Cli) -> Result<()> {
             &api_key,
             &script_hash,
             &shell,
+            prompter.as_ref(),
         )
         .await?;
         log_execution(
@@ -902,6 +921,7 @@ async fn prompt_high_risk_execution(
     api_key: &str,
     script_hash: &str,
     shell: &Shell,
+    prompter: &dyn Prompter,
 ) -> Result<Option<i32>> {
     println!(
         "{}",
@@ -915,20 +935,12 @@ async fn prompt_high_risk_execution(
     println!();
 
     let options = vec!["Confirm (type 'yes')", "Explain", "Cancel"];
-    let selection = Select::with_theme(&select_theme())
-        .with_prompt("Execute this command?")
-        .items(&options)
-        .default(2) // Default to Cancel for safety
-        .interact()?;
+    let selection = prompter.select("Execute this command?", &options, 2)?;
 
     match selection {
         0 => {
             // Require typing "yes"
-            print!("{}", "Type 'yes' to confirm: ".yellow());
-            io::stdout().flush()?;
-
-            let mut input = String::new();
-            io::stdin().read_line(&mut input)?;
+            let input = prompter.input(&"Type 'yes' to confirm: ".yellow().to_string())?;
 
             if input.trim().to_lowercase() == "yes" {
                 let config = Config::load()?;
@@ -954,6 +966,7 @@ async fn prompt_high_risk_execution(
                 api_key,
                 script_hash,
                 shell,
+                prompter,
             ))
             .await
         }
@@ -973,13 +986,10 @@ async fn prompt_normal_execution(
     api_key: &str,
     script_hash: &str,
     shell: &Shell,
+    prompter: &dyn Prompter,
 ) -> Result<Option<i32>> {
     let options = vec!["Execute", "Explain", "Cancel"];
-    let selection = Select::with_theme(&select_theme())
-        .with_prompt("Execute this command?")
-        .items(&options)
-        .default(0)
-        .interact()?;
+    let selection = prompter.select("Execute this command?", &options, 0)?;
 
     match selection {
         0 => {
@@ -992,7 +1002,7 @@ async fn prompt_normal_execution(
             )
             .await
         }
-        1 => explain_and_prompt(script, api_key, script_hash, shell).await,
+        1 => explain_and_prompt(script, api_key, script_hash, shell, prompter).await,
         2 => {
             println!("{}", "Cancelled.".red());
             Ok(None)
@@ -1165,6 +1175,7 @@ async fn explain_and_prompt(
     api_key: &str,
     script_hash: &str,
     shell: &Shell,
+    prompter: &dyn Prompter,
 ) -> Result<Option<i32>> {
     let config = Config::load()?;
     let explainer_model = config.get_explainer_model();
@@ -1187,11 +1198,7 @@ async fn explain_and_prompt(
 
     // Ask what to do next
     let options = vec!["Execute", "Cancel"];
-    let selection = Select::with_theme(&select_theme())
-        .with_prompt("What would you like to do?")
-        .items(&options)
-        .default(0)
-        .interact()?;
+    let selection = prompter.select("What would you like to do?", &options, 0)?;
 
     match selection {
         0 => {
@@ -1334,16 +1341,6 @@ async fn terminate_script_process(child: &mut tokio::process::Child) {
 
     let _ = child.kill().await;
     let _ = child.wait().await;
-}
-
-/// Build a Select theme with bold active item styling.
-fn select_theme() -> ColorfulTheme {
-    ColorfulTheme {
-        active_item_style: console::Style::new().bold(),
-        active_item_prefix: console::style("▸ ".to_string()).bold(),
-        inactive_item_prefix: console::style("  ".to_string()),
-        ..ColorfulTheme::default()
-    }
 }
 
 fn is_interactive_terminal() -> bool {

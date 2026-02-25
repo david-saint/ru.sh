@@ -9,6 +9,10 @@ use std::time::Duration;
 
 const OPENROUTER_API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 
+static API_URL: LazyLock<String> = LazyLock::new(|| {
+    std::env::var("RU_API_URL").unwrap_or_else(|_| OPENROUTER_API_URL.to_string())
+});
+
 static VERBOSE: AtomicBool = AtomicBool::new(false);
 
 /// Set verbosity level
@@ -358,7 +362,7 @@ pub async fn generate_script(
 
     let api_key = api_key.to_string();
     let request_builder = HTTP_CLIENT
-        .post(OPENROUTER_API_URL)
+        .post(&*API_URL)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .header("HTTP-Referer", "https://github.com/ru-sh/ru-cli")
@@ -431,7 +435,7 @@ pub async fn explain_script(
 
     let api_key = api_key.to_string();
     let request_builder = HTTP_CLIENT
-        .post(OPENROUTER_API_URL)
+        .post(&*API_URL)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .header("HTTP-Referer", "https://github.com/ru-sh/ru-cli")
