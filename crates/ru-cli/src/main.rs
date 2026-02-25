@@ -1052,10 +1052,15 @@ fn log_execution(
 
 /// Resolve API key from: CLI flag > env var > config file
 fn resolve_api_key(cli_key: Option<String>, config: &Config) -> Result<String> {
-    let env_key = env::var("OPENROUTER_API_KEY").ok();
-    let config_key = config.api_key.clone();
+    let key = cli_key
+        .or_else(|| {
+            env::var("OPENROUTER_API_KEY")
+                .ok()
+                .filter(|k| !k.is_empty())
+        })
+        .or_else(|| config.api_key.clone());
 
-    if let Some(key) = determine_api_key(cli_key, env_key, config_key) {
+    if let Some(key) = key {
         return Ok(key);
     }
 
@@ -1072,15 +1077,6 @@ fn resolve_api_key(cli_key: Option<String>, config: &Config) -> Result<String> {
          Config file location: {}",
         config_path
     );
-}
-
-/// Pure logic to determine API key precedence
-fn determine_api_key(
-    cli_key: Option<String>,
-    env_key: Option<String>,
-    config_key: Option<String>,
-) -> Option<String> {
-    cli_key.or(env_key.filter(|k| !k.is_empty())).or(config_key)
 }
 
 /// Mask an API key for display in config output.
@@ -1461,37 +1457,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_determine_api_key_precedence() {
-        let cli = Some("cli-key".to_string());
-        let env = Some("env-key".to_string());
-        let config = Some("config-key".to_string());
+    fn test_resolve_api_key_precedence() {
+        let mut config = Config::default();
+        config.set_api_key("config-key".to_string());
 
-        // CLI > Env > Config
-        assert_eq!(
-            determine_api_key(cli.clone(), env.clone(), config.clone()),
-            Some("cli-key".to_string())
-        );
+        // CLI > Config
+        let result = resolve_api_key(Some("cli-key".to_string()), &config).unwrap();
+        assert_eq!(result, "cli-key");
 
-        // Env > Config
-        assert_eq!(
-            determine_api_key(None, env.clone(), config.clone()),
-            Some("env-key".to_string())
-        );
+        // Env > Config (using environment variable)
+        unsafe { std::env::set_var("OPENROUTER_API_KEY", "env-key") };
+        let result = resolve_api_key(None, &config).unwrap();
+        assert_eq!(result, "env-key");
 
         // Config only
-        assert_eq!(
-            determine_api_key(None, None, config.clone()),
-            Some("config-key".to_string())
-        );
+        unsafe { std::env::remove_var("OPENROUTER_API_KEY") };
+        let result = resolve_api_key(None, &config).unwrap();
+        assert_eq!(result, "config-key");
 
         // Env empty string should be ignored
-        assert_eq!(
-            determine_api_key(None, Some("".to_string()), config.clone()),
-            Some("config-key".to_string())
-        );
+        unsafe { std::env::set_var("OPENROUTER_API_KEY", "") };
+        let result = resolve_api_key(None, &config).unwrap();
+        assert_eq!(result, "config-key");
+        unsafe { std::env::remove_var("OPENROUTER_API_KEY") };
 
-        // None
-        assert_eq!(determine_api_key(None, None, None), None);
+        // None should bail
+        let mut empty_config = Config::default();
+        empty_config.clear_api_key();
+        assert!(resolve_api_key(None, &empty_config).is_err());
     }
 
     #[test]
