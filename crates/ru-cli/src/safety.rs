@@ -1,5 +1,6 @@
 use crate::shell::Shell;
 use regex::{Regex, RegexSet};
+use std::borrow::Cow;
 use std::fmt;
 use std::process::Command;
 use std::sync::LazyLock;
@@ -631,8 +632,36 @@ const RM_PRIVILEGED_WARNING: &str =
     "Privileged recursive deletion - dangerous with elevated permissions";
 const CHMOD_WORLD_WRITABLE_WARNING: &str =
     "Setting world-writable permissions - severe security risk";
-const CRITICAL_SYSTEM_DIRS: [&str; 10] = [
-    "home", "etc", "root", "var", "usr", "boot", "bin", "sbin", "lib", "lib64",
+
+/// List of critical system directories that trigger CRITICAL risk if targeted for deletion.
+const CRITICAL_SYSTEM_DIRS: [&str; 25] = [
+    // Standard Linux/Unix
+    "home",
+    "etc",
+    "root",
+    "var",
+    "usr",
+    "boot",
+    "bin",
+    "sbin",
+    "lib",
+    "lib64",
+    "sys",
+    "proc",
+    "dev",
+    "run",
+    "opt",
+    "srv",
+    "mnt",
+    "media",
+    "lost+found",
+    // macOS specific
+    "System",
+    "Library",
+    "Applications",
+    "Users",
+    "Volumes",
+    "private",
 ];
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -674,7 +703,7 @@ fn analyze_unix_rm_risks(script: &str) -> RmRiskSummary {
     let mut summary = RmRiskSummary::default();
 
     for command in split_shell_commands(script) {
-        let tokens = split_shell_words(&command);
+        let tokens = split_shell_words(command);
         let Some((rm_index, is_privileged)) = locate_rm_invocation(&tokens) else {
             continue;
         };
@@ -686,7 +715,7 @@ fn analyze_unix_rm_risks(script: &str) -> RmRiskSummary {
         let mut options_terminated = false;
 
         for token in tokens.iter().skip(rm_index + 1) {
-            let arg = token.as_str();
+            let arg = token.as_ref();
 
             if !options_terminated && arg == "--" {
                 options_terminated = true;
@@ -729,7 +758,7 @@ fn analyze_unix_rm_risks(script: &str) -> RmRiskSummary {
 
 fn analyze_unix_chmod_world_writable(script: &str) -> bool {
     for command in split_shell_commands(script) {
-        let tokens = split_shell_words(&command);
+        let tokens = split_shell_words(command);
         let Some(chmod_index) = locate_chmod_invocation(&tokens) else {
             continue;
         };
@@ -742,12 +771,12 @@ fn analyze_unix_chmod_world_writable(script: &str) -> bool {
     false
 }
 
-fn chmod_invocation_sets_world_writable(args: &[String]) -> bool {
+fn chmod_invocation_sets_world_writable(args: &[Cow<str>]) -> bool {
     let mut idx = 0;
     let mut options_terminated = false;
 
     while idx < args.len() {
-        let arg = args[idx].as_str();
+        let arg = args[idx].as_ref();
 
         if !options_terminated && arg == "--" {
             options_terminated = true;
@@ -883,18 +912,17 @@ fn unescape_shell_token(token: &str) -> String {
     normalized
 }
 
-fn split_shell_commands(script: &str) -> Vec<String> {
+fn split_shell_commands(script: &str) -> Vec<&str> {
     let mut commands = Vec::new();
-    let mut current = String::new();
-    let mut chars = script.chars().peekable();
+    let mut start = 0;
+    let mut chars = script.char_indices().peekable();
     let mut in_single = false;
     let mut in_double = false;
     let mut escaped = false;
     let mut at_word_start = true;
 
-    while let Some(ch) = chars.next() {
+    while let Some((idx, ch)) = chars.next() {
         if escaped {
-            current.push(ch);
             escaped = false;
             at_word_start = false;
             continue;
@@ -902,21 +930,18 @@ fn split_shell_commands(script: &str) -> Vec<String> {
 
         if !in_single && ch == '\\' {
             escaped = true;
-            current.push(ch);
             at_word_start = false;
             continue;
         }
 
         if !in_double && ch == '\'' {
             in_single = !in_single;
-            current.push(ch);
             at_word_start = false;
             continue;
         }
 
         if !in_single && ch == '"' {
             in_double = !in_double;
-            current.push(ch);
             at_word_start = false;
             continue;
         }
@@ -924,68 +949,91 @@ fn split_shell_commands(script: &str) -> Vec<String> {
         if !in_single && !in_double {
             // Shell comment starts only at a token boundary.
             if ch == '#' && at_word_start {
-                for next in chars.by_ref() {
-                    if next == '\n' {
+                let end_of_command = idx;
+
+                // Consume comment until newline
+                let mut newline_pos = None;
+                for (n_idx, n_ch) in chars.by_ref() {
+                    if n_ch == '\n' {
+                        newline_pos = Some(n_idx);
                         break;
                     }
                 }
 
-                if !current.trim().is_empty() {
-                    commands.push(current.trim().to_string());
-                    current.clear();
+                let part = &script[start..end_of_command];
+                if !part.trim().is_empty() {
+                    commands.push(part.trim());
                 }
+
+                if let Some(nl) = newline_pos {
+                    start = nl + 1; // Start after newline
+                } else {
+                    start = script.len(); // End of script
+                }
+
                 at_word_start = true;
                 continue;
             }
 
             if ch == ';' || ch == '\n' {
-                if !current.trim().is_empty() {
-                    commands.push(current.trim().to_string());
-                    current.clear();
+                let part = &script[start..idx];
+                if !part.trim().is_empty() {
+                    commands.push(part.trim());
                 }
+                start = idx + ch.len_utf8();
                 at_word_start = true;
                 continue;
             }
 
             if ch == '|' || ch == '&' {
-                if let Some(peeked) = chars.peek()
-                    && *peeked == ch
-                {
+                let mut sep_len = ch.len_utf8();
+                let is_double = matches!(chars.peek(), Some((_, p)) if *p == ch);
+
+                if is_double {
                     let _ = chars.next();
+                    sep_len += ch.len_utf8();
                 }
-                if !current.trim().is_empty() {
-                    commands.push(current.trim().to_string());
-                    current.clear();
+
+                let part = &script[start..idx];
+                if !part.trim().is_empty() {
+                    commands.push(part.trim());
                 }
+                start = idx + sep_len;
                 at_word_start = true;
                 continue;
             }
         }
 
         at_word_start = ch.is_whitespace();
-        current.push(ch);
     }
 
-    if !current.trim().is_empty() {
-        commands.push(current.trim().to_string());
+    if start < script.len() {
+        let part = &script[start..];
+        if !part.trim().is_empty() {
+            commands.push(part.trim());
+        }
     }
 
     commands
 }
 
-fn split_shell_words(command: &str) -> Vec<String> {
+fn split_shell_words(command: &str) -> Vec<Cow<'_, str>> {
     let mut words = Vec::new();
     let mut current = String::new();
-    let chars = command.chars();
+    let chars = command.char_indices().peekable();
     let mut in_single = false;
     let mut in_double = false;
     let mut escaped = false;
     let mut at_word_start = true;
+    let mut word_start_idx = 0;
+    let mut needs_allocation = false;
 
-    for ch in chars {
+    for (idx, ch) in chars {
         if escaped {
-            current.push('\\');
-            current.push(ch);
+            if needs_allocation {
+                current.push('\\');
+                current.push(ch);
+            }
             escaped = false;
             at_word_start = false;
             continue;
@@ -993,17 +1041,26 @@ fn split_shell_words(command: &str) -> Vec<String> {
 
         if !in_single && ch == '\\' {
             escaped = true;
+            at_word_start = false;
             continue;
         }
 
         if !in_double && ch == '\'' {
             in_single = !in_single;
+            if !needs_allocation {
+                needs_allocation = true;
+                current.push_str(&command[word_start_idx..idx]);
+            }
             at_word_start = false;
             continue;
         }
 
         if !in_single && ch == '"' {
             in_double = !in_double;
+            if !needs_allocation {
+                needs_allocation = true;
+                current.push_str(&command[word_start_idx..idx]);
+            }
             at_word_start = false;
             continue;
         }
@@ -1014,35 +1071,54 @@ fn split_shell_words(command: &str) -> Vec<String> {
             }
 
             if ch.is_whitespace() {
-                if !current.is_empty() {
-                    words.push(std::mem::take(&mut current));
+                if needs_allocation {
+                    if !current.is_empty() {
+                        words.push(Cow::Owned(std::mem::take(&mut current)));
+                    }
+                    needs_allocation = false;
+                } else {
+                    let part = &command[word_start_idx..idx];
+                    if !part.is_empty() {
+                        words.push(Cow::Borrowed(part));
+                    }
                 }
+
                 at_word_start = true;
+                word_start_idx = idx + ch.len_utf8();
                 continue;
             }
         }
 
-        current.push(ch);
+        if needs_allocation {
+            current.push(ch);
+        }
         at_word_start = false;
     }
 
-    if escaped {
+    if escaped && needs_allocation {
         current.push('\\');
     }
 
-    if !current.is_empty() {
-        words.push(current);
+    if needs_allocation {
+        if !current.is_empty() {
+            words.push(Cow::Owned(current));
+        }
+    } else if word_start_idx < command.len() {
+        let part = &command[word_start_idx..];
+        if !part.is_empty() {
+            words.push(Cow::Borrowed(part));
+        }
     }
 
     words
 }
 
-fn locate_rm_invocation(tokens: &[String]) -> Option<(usize, bool)> {
+fn locate_rm_invocation(tokens: &[Cow<str>]) -> Option<(usize, bool)> {
     let mut idx = 0;
     let mut privileged = false;
 
     while idx < tokens.len() {
-        let token = tokens[idx].as_str();
+        let token = tokens[idx].as_ref();
 
         if is_shell_assignment(token) {
             idx += 1;
@@ -1053,7 +1129,7 @@ fn locate_rm_invocation(tokens: &[String]) -> Option<(usize, bool)> {
             privileged = true;
             idx += 1;
             while idx < tokens.len() {
-                let next = tokens[idx].as_str();
+                let next = tokens[idx].as_ref();
                 if next == "--" {
                     idx += 1;
                     break;
@@ -1069,7 +1145,7 @@ fn locate_rm_invocation(tokens: &[String]) -> Option<(usize, bool)> {
         if token == "env" {
             idx += 1;
             while idx < tokens.len() {
-                let next = tokens[idx].as_str();
+                let next = tokens[idx].as_ref();
                 if next == "--" {
                     idx += 1;
                     break;
@@ -1086,7 +1162,7 @@ fn locate_rm_invocation(tokens: &[String]) -> Option<(usize, bool)> {
         if token == "command" {
             idx += 1;
             while idx < tokens.len() {
-                let next = tokens[idx].as_str();
+                let next = tokens[idx].as_ref();
                 if next == "--" {
                     idx += 1;
                     break;
@@ -1109,11 +1185,11 @@ fn locate_rm_invocation(tokens: &[String]) -> Option<(usize, bool)> {
     None
 }
 
-fn locate_chmod_invocation(tokens: &[String]) -> Option<usize> {
+fn locate_chmod_invocation(tokens: &[Cow<str>]) -> Option<usize> {
     let mut idx = 0;
 
     while idx < tokens.len() {
-        let token = tokens[idx].as_str();
+        let token = tokens[idx].as_ref();
 
         if is_shell_assignment(token) {
             idx += 1;
@@ -1123,7 +1199,7 @@ fn locate_chmod_invocation(tokens: &[String]) -> Option<usize> {
         if matches!(token, "sudo" | "doas") {
             idx += 1;
             while idx < tokens.len() {
-                let next = tokens[idx].as_str();
+                let next = tokens[idx].as_ref();
                 if next == "--" {
                     idx += 1;
                     break;
@@ -1139,7 +1215,7 @@ fn locate_chmod_invocation(tokens: &[String]) -> Option<usize> {
         if token == "env" {
             idx += 1;
             while idx < tokens.len() {
-                let next = tokens[idx].as_str();
+                let next = tokens[idx].as_ref();
                 if next == "--" {
                     idx += 1;
                     break;
@@ -1156,7 +1232,7 @@ fn locate_chmod_invocation(tokens: &[String]) -> Option<usize> {
         if token == "command" {
             idx += 1;
             while idx < tokens.len() {
-                let next = tokens[idx].as_str();
+                let next = tokens[idx].as_ref();
                 if next == "--" {
                     idx += 1;
                     break;
@@ -1300,15 +1376,49 @@ fn normalize_unix_absolute_path(path: &str) -> Option<String> {
 
 fn is_critical_system_path(normalized_path: &str) -> bool {
     for dir in CRITICAL_SYSTEM_DIRS {
-        let base = format!("/{dir}");
-        if normalized_path == base {
+        if matches_critical_system_dir_path(normalized_path, dir, is_macos_critical_root(dir)) {
             return true;
         }
-        if let Some(rest) = normalized_path.strip_prefix(&base)
-            && rest.starts_with('/')
-        {
+    }
+
+    false
+}
+
+fn is_macos_critical_root(dir: &str) -> bool {
+    matches!(
+        dir,
+        "System" | "Library" | "Applications" | "Users" | "Volumes" | "private"
+    )
+}
+
+fn matches_critical_system_dir_path(
+    normalized_path: &str,
+    dir: &str,
+    case_insensitive: bool,
+) -> bool {
+    let base = format!("/{dir}");
+
+    if case_insensitive {
+        if normalized_path.eq_ignore_ascii_case(&base) {
             return true;
         }
+
+        if normalized_path.len() > base.len() {
+            let (prefix, rest) = normalized_path.split_at(base.len());
+            return prefix.eq_ignore_ascii_case(&base) && rest.starts_with('/');
+        }
+
+        return false;
+    }
+
+    if normalized_path == base {
+        return true;
+    }
+
+    if let Some(rest) = normalized_path.strip_prefix(&base)
+        && rest.starts_with('/')
+    {
+        return true;
     }
 
     false
@@ -1549,6 +1659,60 @@ mod tests {
     fn test_analyze_critical_rm_rf_etc() {
         let report = analyze_script("rm -rf /etc", &Shell::Bash);
         assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_rf_sys() {
+        let report = analyze_script("rm -rf /sys", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_rf_proc() {
+        let report = analyze_script("rm -rf /proc/1/stat", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_rf_dev() {
+        let report = analyze_script("rm -rf /dev", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_rf_macos_library() {
+        let report = analyze_script("rm -rf /Library", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_rf_macos_system() {
+        let report = analyze_script("rm -rf /System", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_rf_macos_system_lowercase() {
+        let report = analyze_script("rm -rf /system", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_critical_rm_rf_macos_library_nested_lowercase() {
+        let report = analyze_script("rm -rf /library/preferences", &Shell::Bash);
+        assert_eq!(report.overall_risk, RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_analyze_safe_rm_rf_macos_prefix_boundary() {
+        let report = analyze_script("rm -rf /systemd", &Shell::Bash);
+        assert_ne!(report.overall_risk, RiskLevel::Critical);
+        assert!(
+            !report
+                .warnings
+                .iter()
+                .any(|w| w.description == RM_CRITICAL_DIR_WARNING)
+        );
     }
 
     #[test]
