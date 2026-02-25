@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use chrono::Utc;
+use chrono::{Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
@@ -17,12 +17,10 @@ pub const DEFAULT_MONTHLY_WARNING: u32 = 1000;
 pub struct UsageStats {
     /// Number of requests made today
     pub requests_today: u32,
-    /// Date of last request (YYYY-MM-DD format)
-    pub last_request_date: Option<String>,
+    /// Date of last request
+    pub last_request_date: Option<NaiveDate>,
     /// Number of requests this month
     pub requests_this_month: u32,
-    /// Month of last request (YYYY-MM format)
-    pub last_request_month: Option<String>,
     /// Total requests all time
     pub total_requests: u32,
 }
@@ -101,33 +99,35 @@ impl UsageStats {
 
     /// Reset daily/monthly counters if the date has changed
     fn reset_if_needed(&mut self) {
-        let today = Utc::now().format("%Y-%m-%d").to_string();
-        let this_month = Utc::now().format("%Y-%m").to_string();
+        let now = Utc::now().date_naive();
+        let today = now;
+        let this_month = (now.year(), now.month());
 
         // Reset daily counter if date changed
-        if self.last_request_date.as_ref() != Some(&today) {
+        if self.last_request_date != Some(today) {
             self.requests_today = 0;
         }
 
         // Reset monthly counter if month changed
-        if self.last_request_month.as_ref() != Some(&this_month) {
-            self.requests_this_month = 0;
+        if let Some(last_date) = self.last_request_date {
+            let last_month = (last_date.year(), last_date.month());
+            if last_month != this_month {
+                self.requests_this_month = 0;
+            }
         }
     }
 
     /// Increment usage counters
     pub fn increment(&mut self) {
-        let today = Utc::now().format("%Y-%m-%d").to_string();
-        let this_month = Utc::now().format("%Y-%m").to_string();
+        let now = Utc::now().date_naive();
 
         // Reset if needed before incrementing
         self.reset_if_needed();
 
         self.requests_today += 1;
-        self.last_request_date = Some(today);
+        self.last_request_date = Some(now);
 
         self.requests_this_month += 1;
-        self.last_request_month = Some(this_month);
 
         self.total_requests += 1;
     }
@@ -219,7 +219,6 @@ mod tests {
         assert_eq!(stats.requests_this_month, 1);
         assert_eq!(stats.total_requests, 1);
         assert!(stats.last_request_date.is_some());
-        assert!(stats.last_request_month.is_some());
     }
 
     #[test]
@@ -245,7 +244,7 @@ mod tests {
     fn test_check_limits_daily_warning() {
         let stats = UsageStats {
             requests_today: 100,
-            last_request_date: Some(Utc::now().format("%Y-%m-%d").to_string()),
+            last_request_date: Some(Utc::now().date_naive()),
             ..Default::default()
         };
 
@@ -259,7 +258,7 @@ mod tests {
     fn test_check_limits_monthly_warning() {
         let stats = UsageStats {
             requests_this_month: 1000,
-            last_request_month: Some(Utc::now().format("%Y-%m").to_string()),
+            // Even if we don't set last_request_date, limits are checked against counters
             ..Default::default()
         };
 
@@ -273,7 +272,7 @@ mod tests {
     fn test_check_limits_default_thresholds() {
         let stats = UsageStats {
             requests_today: DEFAULT_DAILY_WARNING,
-            last_request_date: Some(Utc::now().format("%Y-%m-%d").to_string()),
+            last_request_date: Some(Utc::now().date_naive()),
             ..Default::default()
         };
 
@@ -287,7 +286,7 @@ mod tests {
     fn test_reset_daily_counter() {
         let mut stats = UsageStats {
             requests_today: 50,
-            last_request_date: Some("2020-01-01".to_string()), // Old date
+            last_request_date: NaiveDate::from_ymd_opt(2020, 1, 1), // Old date
             ..Default::default()
         };
 
@@ -299,7 +298,8 @@ mod tests {
     fn test_reset_monthly_counter() {
         let mut stats = UsageStats {
             requests_this_month: 500,
-            last_request_month: Some("2020-01".to_string()), // Old month
+            // Use a date from a different month (Jan 2020)
+            last_request_date: NaiveDate::from_ymd_opt(2020, 1, 1),
             ..Default::default()
         };
 
@@ -310,7 +310,7 @@ mod tests {
     #[test]
     fn test_no_reset_same_day() {
         let mut stats = UsageStats::default();
-        let today = Utc::now().format("%Y-%m-%d").to_string();
+        let today = Utc::now().date_naive();
         stats.requests_today = 50;
         stats.last_request_date = Some(today);
 
