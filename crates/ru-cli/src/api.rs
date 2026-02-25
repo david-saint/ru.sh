@@ -458,43 +458,40 @@ pub async fn explain_script(
 fn strip_code_blocks(content: String) -> String {
     let trimmed = content.trim();
 
-    if trimmed.starts_with("```") {
-        // Find the end of the first line to skip the opening fence
-        if let Some(first_newline) = trimmed.find('\n') {
-            let start = first_newline + 1;
+    // Look for the start of a code block anywhere in the string
+    if let Some(start_fence) = trimmed.find("```") {
+        // Find the end of the opening fence line (e.g. ```bash\n)
+        if let Some(newline_offset) = trimmed[start_fence..].find('\n') {
+            let content_start = start_fence + newline_offset + 1;
 
-            // Check if there is anything after the first line
-            if start >= trimmed.len() {
+            // Check if there is anything after the opening line
+            if content_start >= trimmed.len() {
                 return String::new();
             }
 
-            let content_part = &trimmed[start..];
+            let content_part = &trimmed[content_start..];
 
             // Handle empty block case where closing fence immediately follows opening line
+            // We check if the content starts with "```" (which would be the closing fence)
             if content_part.starts_with("```") {
                 return String::new();
             }
 
             // Find the closing fence. We search for "\n```" which handles both
-            // Unix (\n) and Windows (\r\n) line endings (since \r\n ends with \n).
-            // This ensures we stop at the FIRST closing fence, preventing execution
-            // of any trailing text (e.g., explanations or hallucinations).
-            let end = if let Some(offset) = content_part.find("\n```") {
-                start + offset
+            // Unix (\n) and Windows (\r\n) line endings.
+            // This ensures we stop at the FIRST closing fence.
+            let content_end = if let Some(offset) = content_part.find("\n```") {
+                content_start + offset
             } else {
                 // If no closing fence found, we assume the block goes to the end
-                // (handling truncated responses gracefully)
                 trimmed.len()
             };
 
-            if start < end {
-                return trimmed[start..end].trim().to_string();
+            if content_start < content_end {
+                return trimmed[content_start..content_end].trim().to_string();
             } else {
                 return String::new();
             }
-        } else {
-            // Only one line starting with ``` (the opening fence itself)
-            return String::new();
         }
     }
 
@@ -526,6 +523,18 @@ mod tests {
     fn test_strip_code_blocks_plain() {
         let input = "```\nfind . -name '*.rs'\n```";
         assert_eq!(strip_code_blocks(input.to_string()), "find . -name '*.rs'");
+    }
+
+    #[test]
+    fn test_strip_code_blocks_mixed_content() {
+        let input = "Here is the script:\n```bash\nls -la\n```";
+        assert_eq!(strip_code_blocks(input.to_string()), "ls -la");
+    }
+
+    #[test]
+    fn test_strip_code_blocks_multiple_blocks_mixed() {
+        let input = "First:\n```\necho 1\n```\nSecond:\n```\necho 2\n```";
+        assert_eq!(strip_code_blocks(input.to_string()), "echo 1");
     }
 
     #[test]
