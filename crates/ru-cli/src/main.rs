@@ -1347,6 +1347,9 @@ fn select_theme() -> ColorfulTheme {
 }
 
 fn is_interactive_terminal() -> bool {
+    if std::env::var("RU_TEST_MODE").is_ok() {
+        return true;
+    }
     io::stdin().is_terminal() && io::stdout().is_terminal()
 }
 
@@ -1570,6 +1573,76 @@ mod tests {
         // We use a simple echo command that should always succeed
         let result = execute_script(
             "echo 'hello world'",
+            None,
+            config::DEFAULT_SCRIPT_TIMEOUT_SECS,
+            &Shell::Bash,
+        )
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_execute_script_multiline() {
+        let result = execute_script(
+            "echo line1\necho line2",
+            None,
+            config::DEFAULT_SCRIPT_TIMEOUT_SECS,
+            &Shell::Bash,
+        )
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_execute_script_with_env_var() {
+        let result = execute_script(
+            "MY_VAR=hello; [ \"$MY_VAR\" = \"hello\" ]",
+            None,
+            config::DEFAULT_SCRIPT_TIMEOUT_SECS,
+            &Shell::Bash,
+        )
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_execute_script_with_pipe() {
+        let result = execute_script(
+            "echo 'hello world' | grep 'world'",
+            None,
+            config::DEFAULT_SCRIPT_TIMEOUT_SECS,
+            &Shell::Bash,
+        )
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_execute_script_with_redirection() {
+        use std::fs;
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let script = format!("echo 'data' > '{}'", path);
+        let result = execute_script(
+            &script,
+            None,
+            config::DEFAULT_SCRIPT_TIMEOUT_SECS,
+            &Shell::Bash,
+        )
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Some(0));
+        assert_eq!(fs::read_to_string(path).unwrap().trim(), "data");
+    }
+
+    #[tokio::test]
+    async fn test_execute_script_with_special_chars() {
+        let result = execute_script(
+            "echo '\"!@#$%^&*()_+{}|:<>?`~'",
             None,
             config::DEFAULT_SCRIPT_TIMEOUT_SECS,
             &Shell::Bash,

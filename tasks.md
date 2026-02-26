@@ -58,8 +58,8 @@ Current completion: ~90%. All critical tasks complete. Safety system implemented
 - [ ] Add structured logging with levels (info, debug, trace)
 
 ### 7. Integration Tests
-- [ ] Add end-to-end tests with mock API server
-- [ ] Test actual bash script execution scenarios
+- [x] Add end-to-end tests with mock API server
+- [x] Test actual bash script execution scenarios
 - [ ] Test config file corruption recovery
 - [ ] Test interactive dialogue flows
 
