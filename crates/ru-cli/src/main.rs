@@ -361,6 +361,8 @@ fn handle_config(action: ConfigAction) -> Result<()> {
             }
         }
         ConfigAction::Path => {
+            // Re-load config to trigger corruption check
+            let _ = Config::load()?;
             if let Some(path) = Config::path() {
                 println!("{}", path.display());
             } else {

@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use chrono::{Datelike, NaiveDate, Utc};
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
@@ -44,7 +45,11 @@ impl UsageStats {
             Some(p) => p,
             None => return Ok(Self::default()),
         };
+        Self::load_from(path)
+    }
 
+    /// Load usage stats from a specific path
+    pub fn load_from(path: PathBuf) -> Result<Self> {
         if !path.exists() {
             return Ok(Self::default());
         }
@@ -52,8 +57,32 @@ impl UsageStats {
         let contents = fs::read_to_string(&path)
             .with_context(|| format!("Failed to read usage file: {}", path.display()))?;
 
-        let mut stats: Self = toml::from_str(&contents)
-            .with_context(|| format!("Failed to parse usage file: {}", path.display()))?;
+        let mut stats: Self = match toml::from_str::<Self>(&contents) {
+            Ok(s) => s,
+            Err(e) => {
+                let bak_path = PathBuf::from(format!("{}.bak", path.display()));
+                match fs::rename(&path, &bak_path) {
+                    Ok(_) => {
+                        eprintln!(
+                            "{} Usage file at {} is corrupted and has been backed up to {}. Usage stats have been reset.",
+                            "Warning:".yellow().bold(),
+                            path.display(),
+                            bak_path.display()
+                        );
+                    }
+                    Err(rename_err) => {
+                        eprintln!(
+                            "{} Usage file at {} is corrupted. Failed to create backup: {}. Usage stats have been reset.",
+                            "Warning:".yellow().bold(),
+                            path.display(),
+                            rename_err
+                        );
+                    }
+                }
+                eprintln!("{} {}", "Error details:".dimmed(), e);
+                Self::default()
+            }
+        };
 
         // Reset counters if date/month changed
         stats.reset_if_needed();
@@ -64,7 +93,11 @@ impl UsageStats {
     /// Save usage stats to file
     pub fn save(&self) -> Result<()> {
         let path = Self::path().context("Could not determine usage path")?;
+        self.save_to(path)
+    }
 
+    /// Save usage stats to a specific path
+    pub fn save_to(&self, path: PathBuf) -> Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).with_context(|| {
                 format!("Failed to create usage directory: {}", parent.display())
@@ -329,6 +362,25 @@ mod tests {
 
         stats.reset_if_needed();
         assert_eq!(stats.requests_this_month, 0);
+    }
+
+    #[test]
+    fn test_load_corrupted_usage_recovers() -> Result<()> {
+        use tempfile::NamedTempFile;
+        let file = NamedTempFile::new()?;
+        let path = file.path().to_path_buf();
+
+        // Write invalid TOML
+        fs::write(&path, "invalid = toml = format")?;
+
+        let stats = UsageStats::load_from(path.clone())?;
+        assert_eq!(stats.total_requests, 0);
+
+        let bak_path = PathBuf::from(format!("{}.bak", path.display()));
+        assert!(bak_path.exists());
+        assert!(!path.exists());
+
+        Ok(())
     }
 
     #[test]
