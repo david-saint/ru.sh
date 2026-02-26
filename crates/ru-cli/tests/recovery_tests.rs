@@ -21,7 +21,12 @@ fn test_config_corruption_recovery_integration() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    assert!(stderr.contains("Warning:") || stdout.contains("Warning:"), "stderr: {}\nstdout: {}", stderr, stdout);
+    assert!(
+        stderr.contains("Warning:") || stdout.contains("Warning:"),
+        "stderr: {}\nstdout: {}",
+        stderr,
+        stdout
+    );
     assert!(stderr.contains("corrupted") || stdout.contains("corrupted"));
     assert!(stderr.contains("config.toml.bak") || stdout.contains("config.toml.bak"));
 
@@ -48,7 +53,17 @@ fn test_usage_corruption_recovery_integration() {
     // 'ru -p "test" --dry-run' will definitely load usage to check limits.
     // We need to provide an API key to avoid that error.
     let output = Command::new("cargo")
-        .args(["run", "--package", "ru-cli", "--", "-p", "hello", "--dry-run", "--api-key", "test-key"])
+        .args([
+            "run",
+            "--package",
+            "ru-cli",
+            "--",
+            "-p",
+            "hello",
+            "--dry-run",
+            "--api-key",
+            "test-key",
+        ])
         .env("HOME", tmp_dir.path())
         .output()
         .expect("failed to execute process");
@@ -56,8 +71,15 @@ fn test_usage_corruption_recovery_integration() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    assert!(stderr.contains("Warning:") || stdout.contains("Warning:"), "stderr: {}\nstdout: {}", stderr, stdout);
-    assert!(stderr.contains("usage.toml is corrupted") || stdout.contains("usage.toml is corrupted"));
+    assert!(
+        stderr.contains("Warning:") || stdout.contains("Warning:"),
+        "stderr: {}\nstdout: {}",
+        stderr,
+        stdout
+    );
+    assert!(
+        stderr.contains("usage.toml is corrupted") || stdout.contains("usage.toml is corrupted")
+    );
     assert!(stderr.contains("usage.toml.bak") || stdout.contains("usage.toml.bak"));
 
     // Verify backup exists
