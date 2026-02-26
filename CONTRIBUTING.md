@@ -25,6 +25,10 @@ To build and run the project, you'll need:
 
 ## 💻 Development Workflow
 
+### Architecture Documentation
+For a deep dive into how `ru.sh` works internally, see:
+- [API Integration Architecture](docs/architecture/api-integration.md)
+
 ### Standard Commands
 
 Before submitting a Pull Request, please ensure your changes pass all checks:
