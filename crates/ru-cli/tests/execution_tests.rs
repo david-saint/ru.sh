@@ -31,7 +31,7 @@ async fn test_e2e_execution_flow() -> Result<(), Box<dyn std::error::Error>> {
         .mount(&mock_server)
         .await;
 
-    let mut cmd = Command::cargo_bin("ru")?;
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ru"));
     cmd.env(
         "RU_API_URL",
         format!("{}/api/v1/chat/completions", mock_server.uri()),
