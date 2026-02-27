@@ -39,9 +39,9 @@ fn test_execute_flow() {
 
     let mut cmd = Command::cargo_bin("ru").unwrap();
     cmd.env("RU_API_URL", &url)
-        .env("RU_TEST_MODE", "1")
-        .env("RU_MOCK_SELECT", "0") // Select "Execute"
         .env("OPENROUTER_API_KEY", "test-key")
+        .arg("--test-select")
+        .arg("0") // Select "Execute"
         .arg("-p")
         .arg("list files");
 
@@ -59,9 +59,9 @@ fn test_explain_then_execute_flow() {
 
     let mut cmd = Command::cargo_bin("ru").unwrap();
     cmd.env("RU_API_URL", &url)
-        .env("RU_TEST_MODE", "1")
-        .env("RU_MOCK_SELECT", "1,0") // Select "Explain", then "Execute"
         .env("OPENROUTER_API_KEY", "test-key")
+        .arg("--test-select")
+        .arg("1,0") // Select "Explain", then "Execute"
         .arg("-p")
         .arg("list files");
 
@@ -82,9 +82,9 @@ fn test_cancel_flow() {
 
     let mut cmd = Command::cargo_bin("ru").unwrap();
     cmd.env("RU_API_URL", &url)
-        .env("RU_TEST_MODE", "1")
-        .env("RU_MOCK_SELECT", "2") // Select "Cancel"
         .env("OPENROUTER_API_KEY", "test-key")
+        .arg("--test-select")
+        .arg("2") // Select "Cancel"
         .arg("-p")
         .arg("list files");
 
@@ -106,10 +106,11 @@ fn test_high_risk_confirmation_flow() {
 
     let mut cmd = Command::cargo_bin("ru").unwrap();
     cmd.env("RU_API_URL", &url)
-        .env("RU_TEST_MODE", "1")
-        .env("RU_MOCK_SELECT", "0") // Select "Confirm (type 'yes')"
-        .env("RU_MOCK_INPUT", "yes") // Type "yes"
         .env("OPENROUTER_API_KEY", "test-key")
+        .arg("--test-select")
+        .arg("0") // Select "Confirm (type 'yes')"
+        .arg("--test-input")
+        .arg("yes") // Type "yes"
         .arg("-p")
         .arg("make world writable");
 
@@ -126,10 +127,11 @@ fn test_high_risk_rejection_flow() {
 
     let mut cmd = Command::cargo_bin("ru").unwrap();
     cmd.env("RU_API_URL", &url)
-        .env("RU_TEST_MODE", "1")
-        .env("RU_MOCK_SELECT", "0") // Select "Confirm"
-        .env("RU_MOCK_INPUT", "no") // Type "no"
         .env("OPENROUTER_API_KEY", "test-key")
+        .arg("--test-select")
+        .arg("0") // Select "Confirm"
+        .arg("--test-input")
+        .arg("no") // Type "no"
         .arg("-p")
         .arg("delete everything");
 
@@ -150,10 +152,11 @@ fn test_high_risk_explain_then_confirm_flow() {
 
     let mut cmd = Command::cargo_bin("ru").unwrap();
     cmd.env("RU_API_URL", &url)
-        .env("RU_TEST_MODE", "1")
-        .env("RU_MOCK_SELECT", "1,0") // Select "Explain", then "Confirm"
-        .env("RU_MOCK_INPUT", "yes")
         .env("OPENROUTER_API_KEY", "test-key")
+        .arg("--test-select")
+        .arg("1,0") // Select "Explain", then "Confirm"
+        .arg("--test-input")
+        .arg("yes")
         .arg("-p")
         .arg("make world writable");
 

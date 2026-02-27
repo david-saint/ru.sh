@@ -38,17 +38,22 @@ pub struct TestPrompter {
 }
 
 impl TestPrompter {
-    pub fn new() -> Self {
-        let select_env = std::env::var("RU_MOCK_SELECT").unwrap_or_default();
-        let select_responses = select_env
+    pub fn new(select_csv: &str, input_csv: &str) -> Self {
+        let select_responses = select_csv
             .split(',')
             .filter_map(|s| s.trim().parse::<usize>().ok())
             .collect::<Vec<_>>();
 
-        let input_env = std::env::var("RU_MOCK_INPUT").unwrap_or_default();
-        let input_responses = input_env
+        let input_responses = input_csv
             .split(',')
-            .map(|s| s.trim().to_string())
+            .filter_map(|s| {
+                let trimmed = s.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
+            })
             .collect::<Vec<_>>();
 
         Self {

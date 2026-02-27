@@ -63,6 +63,14 @@ struct Cli {
     /// Show verbose error messages for debugging
     #[arg(short = 'v', long, global = true)]
     verbose: bool,
+
+    /// Test-only scripted select responses (comma-separated)
+    #[arg(long = "test-select", hide = true, global = true)]
+    test_select: Option<String>,
+
+    /// Test-only scripted input responses (comma-separated)
+    #[arg(long = "test-input", hide = true, global = true)]
+    test_input: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -525,16 +533,23 @@ fn handle_config(action: ConfigAction) -> Result<()> {
     Ok(())
 }
 
-fn get_prompter() -> Box<dyn Prompter> {
-    if std::env::var("RU_TEST_MODE").is_ok() {
-        Box::new(prompt::TestPrompter::new())
+fn get_prompter(cli: &Cli) -> Box<dyn Prompter> {
+    if cli.test_select.is_some() || cli.test_input.is_some() {
+        Box::new(prompt::TestPrompter::new(
+            cli.test_select.as_deref().unwrap_or(""),
+            cli.test_input.as_deref().unwrap_or(""),
+        ))
     } else {
         Box::new(prompt::RealPrompter)
     }
 }
 
 async fn run_prompt(cli: Cli) -> Result<()> {
-    let prompter = get_prompter();
+    if (cli.test_select.is_some() || cli.test_input.is_some()) && !cfg!(debug_assertions) {
+        bail!("--test-select/--test-input are only available in debug builds");
+    }
+
+    let prompter = get_prompter(&cli);
 
     // Spawn a background update check (non-blocking, throttled to once/24h)
     let update_handle = update::spawn_background_check();
