@@ -9,6 +9,15 @@ use std::time::Duration;
 
 const OPENROUTER_API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 
+/// Get the API endpoint URL, allowing override via RU_API_URL env var for testing.
+fn api_url() -> std::borrow::Cow<'static, str> {
+    if let Ok(url) = std::env::var("RU_API_URL") {
+        std::borrow::Cow::Owned(url)
+    } else {
+        std::borrow::Cow::Borrowed(OPENROUTER_API_URL)
+    }
+}
+
 static VERBOSE: AtomicBool = AtomicBool::new(false);
 
 /// Set verbosity level
@@ -358,7 +367,7 @@ pub async fn generate_script(
 
     let api_key = api_key.to_string();
     let request_builder = HTTP_CLIENT
-        .post(OPENROUTER_API_URL)
+        .post(api_url().as_ref())
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .header("HTTP-Referer", "https://github.com/ru-sh/ru-cli")
@@ -431,7 +440,7 @@ pub async fn explain_script(
 
     let api_key = api_key.to_string();
     let request_builder = HTTP_CLIENT
-        .post(OPENROUTER_API_URL)
+        .post(api_url().as_ref())
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .header("HTTP-Referer", "https://github.com/ru-sh/ru-cli")

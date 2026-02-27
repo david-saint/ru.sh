@@ -72,6 +72,9 @@ Since `ru.sh` generates and executes shell scripts, security is paramount.
 - **Efficient I/O**: Use buffered I/O (`BufReader`/`BufWriter`) for file operations.
 - **Zero-Copy**: Favor zero-copy deserialization and comparisons where appropriate.
 
+### API Integration
+For details on how we integrate with LLM APIs, see the [API Integration Architecture](API_INTEGRATION.md) document.
+
 ## 🤝 Pull Request Process
 
 1. Create a new branch for your changes: `git checkout -b feature/your-feature-name`.
