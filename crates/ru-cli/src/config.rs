@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -14,6 +15,8 @@ pub const DEFAULT_MODEL_QUALITY: &str = "anthropic/claude-opus-4.5:nitro";
 pub const DEFAULT_MODEL_EXPLAINER: &str = "nvidia/nemotron-3-nano-30b-a3b:nitro";
 /// Default script execution timeout in seconds (5 minutes)
 pub const DEFAULT_SCRIPT_TIMEOUT_SECS: u64 = 300;
+/// Optional override for the configuration directory path
+pub const CONFIG_DIR_ENV_VAR: &str = "RU_CONFIG_DIR";
 
 /// Model preset for quick selection
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -158,6 +161,14 @@ pub struct Config {
 impl Config {
     /// Get the config directory path (~/.config/ru.sh)
     pub fn dir() -> Option<PathBuf> {
+        // Allow overriding config directory for tests and controlled environments.
+        if let Some(dir) = std::env::var_os(CONFIG_DIR_ENV_VAR) {
+            let path = PathBuf::from(dir);
+            if !path.as_os_str().is_empty() {
+                return Some(path);
+            }
+        }
+
         dirs::home_dir().map(|home| home.join(".config").join("ru.sh"))
     }
 
@@ -183,8 +194,32 @@ impl Config {
         let contents = fs::read_to_string(&path)
             .with_context(|| format!("Failed to read config file: {}", path.display()))?;
 
-        toml::from_str(&contents)
-            .with_context(|| format!("Failed to parse config file: {}", path.display()))
+        match toml::from_str::<Self>(&contents) {
+            Ok(config) => Ok(config),
+            Err(e) => {
+                let bak_path = PathBuf::from(format!("{}.bak", path.display()));
+                match fs::rename(&path, &bak_path) {
+                    Ok(_) => {
+                        eprintln!(
+                            "{} Config file at {} is corrupted and has been backed up to {}. Using default settings.",
+                            "Warning:".yellow().bold(),
+                            path.display(),
+                            bak_path.display()
+                        );
+                    }
+                    Err(rename_err) => {
+                        eprintln!(
+                            "{} Config file at {} is corrupted. Failed to create backup: {}. Using default settings.",
+                            "Warning:".yellow().bold(),
+                            path.display(),
+                            rename_err
+                        );
+                    }
+                }
+                eprintln!("{} {}", "Error details:".dimmed(), e);
+                Ok(Self::default())
+            }
+        }
     }
 
     /// Save config to file, creating directory if needed
@@ -652,6 +687,25 @@ mod tests {
 
         let loaded = Config::load_from(path)?;
         assert_eq!(loaded.get_explain_verbosity(), ExplainVerbosity::Verbose);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_load_corrupted_config_recovers() -> Result<()> {
+        let file = NamedTempFile::new()?;
+        let path = file.path().to_path_buf();
+
+        // Write invalid TOML
+        fs::write(&path, "invalid = toml = format")?;
+
+        let config = Config::load_from(path.clone())?;
+        assert_eq!(config.api_key, None); // Should return default config
+
+        // Original file should be renamed to .bak
+        let bak_path = PathBuf::from(format!("{}.bak", path.display()));
+        assert!(bak_path.exists());
+        assert!(!path.exists());
 
         Ok(())
     }
