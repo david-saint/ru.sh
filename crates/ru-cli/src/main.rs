@@ -1084,10 +1084,17 @@ fn log_execution(
 
 /// Resolve API key from: CLI flag > env var > config file
 fn resolve_api_key(cli_key: Option<String>, config: &Config) -> Result<String> {
-    let env_key = env::var("OPENROUTER_API_KEY").ok();
-    let config_key = config.api_key.clone();
+    let key = determine_api_key(
+        cli_key,
+        || {
+            env::var("OPENROUTER_API_KEY")
+                .ok()
+                .filter(|k| !k.is_empty())
+        },
+        || config.api_key.clone(),
+    );
 
-    if let Some(key) = determine_api_key(cli_key, env_key, config_key) {
+    if let Some(key) = key {
         return Ok(key);
     }
 
@@ -1106,13 +1113,13 @@ fn resolve_api_key(cli_key: Option<String>, config: &Config) -> Result<String> {
     );
 }
 
-/// Pure logic to determine API key precedence
-fn determine_api_key(
-    cli_key: Option<String>,
-    env_key: Option<String>,
-    config_key: Option<String>,
-) -> Option<String> {
-    cli_key.or(env_key.filter(|k| !k.is_empty())).or(config_key)
+/// Resolve API key precedence lazily: CLI > env > config.
+fn determine_api_key<F, G>(cli_key: Option<String>, env_key: F, config_key: G) -> Option<String>
+where
+    F: FnOnce() -> Option<String>,
+    G: FnOnce() -> Option<String>,
+{
+    cli_key.or_else(env_key).or_else(config_key)
 }
 
 /// Mask an API key for display in config output.
@@ -1481,36 +1488,79 @@ mod tests {
 
     #[test]
     fn test_determine_api_key_precedence() {
-        let cli = Some("cli-key".to_string());
-        let env = Some("env-key".to_string());
-        let config = Some("config-key".to_string());
-
         // CLI > Env > Config
         assert_eq!(
-            determine_api_key(cli.clone(), env.clone(), config.clone()),
+            determine_api_key(
+                Some("cli-key".to_string()),
+                || Some("env-key".to_string()),
+                || Some("config-key".to_string())
+            ),
             Some("cli-key".to_string())
         );
 
         // Env > Config
         assert_eq!(
-            determine_api_key(None, env.clone(), config.clone()),
+            determine_api_key(
+                None,
+                || Some("env-key".to_string()),
+                || { Some("config-key".to_string()) }
+            ),
             Some("env-key".to_string())
         );
 
         // Config only
         assert_eq!(
-            determine_api_key(None, None, config.clone()),
+            determine_api_key(None, || None, || Some("config-key".to_string())),
             Some("config-key".to_string())
         );
 
-        // Env empty string should be ignored
+        // Env empty string should be ignored by resolver
+        let env_key = Some(String::new()).filter(|k| !k.is_empty());
         assert_eq!(
-            determine_api_key(None, Some("".to_string()), config.clone()),
+            determine_api_key(None, || env_key, || Some("config-key".to_string())),
             Some("config-key".to_string())
         );
 
         // None
-        assert_eq!(determine_api_key(None, None, None), None);
+        assert_eq!(determine_api_key(None, || None, || None), None);
+    }
+
+    #[test]
+    fn test_determine_api_key_is_lazy() {
+        let mut env_calls = 0usize;
+        let mut config_calls = 0usize;
+
+        let key = determine_api_key(
+            Some("cli-key".to_string()),
+            || {
+                env_calls += 1;
+                Some("env-key".to_string())
+            },
+            || {
+                config_calls += 1;
+                Some("config-key".to_string())
+            },
+        );
+
+        assert_eq!(key, Some("cli-key".to_string()));
+        assert_eq!(env_calls, 0);
+        assert_eq!(config_calls, 0);
+
+        let key = determine_api_key(
+            None,
+            || {
+                env_calls += 1;
+                Some("env-key".to_string())
+            },
+            || {
+                config_calls += 1;
+                Some("config-key".to_string())
+            },
+        );
+
+        assert_eq!(key, Some("env-key".to_string()));
+        assert_eq!(env_calls, 1);
+        assert_eq!(config_calls, 0);
     }
 
     #[test]

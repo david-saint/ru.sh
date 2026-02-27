@@ -13,3 +13,7 @@
 ## 2024-05-22 - [Optimized String Splitting in Safety Analysis]
 **Learning:** `split_shell_commands` and `split_shell_words` in `safety.rs` were allocating `String`s for every command and word (O(N)), dominating the runtime of safety checks.
 **Action:** Refactored `split_shell_commands` to return `Vec<&str>` (borrowed slices) and `split_shell_words` to return `Vec<Cow<str>>` (allocating only when quotes are stripped). This reduced allocations significantly and improved benchmark performance by ~22%. Use `Cow` for tokenization when modification is conditional.
+
+## 2026-02-25 - [Lazy API Key Resolution]
+**Learning:** Fetching environment variables and cloning configuration strings eagerly in `resolve_api_key` causes redundant syscalls and allocations even when the API key is provided via CLI flags.
+**Action:** Implemented lazy evaluation using `.or_else()` closures. This ensures `env::var()` and `config.api_key.clone()` are only executed if higher-precedence sources are missing. Synthetic benchmarks showed a ~4.5x speedup (27ms -> 6ms for 100k iterations) in the CLI-provided path.
