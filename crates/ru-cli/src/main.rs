@@ -64,6 +64,10 @@ struct Cli {
     #[arg(short = 'v', long, global = true)]
     verbose: bool,
 
+    /// Test-only: allow --yes in non-interactive sessions (debug builds only)
+    #[arg(long = "test-allow-non-interactive-yes", hide = true, global = true)]
+    test_allow_non_interactive_yes: bool,
+
     /// Test-only scripted select responses (comma-separated)
     #[arg(long = "test-select", hide = true, global = true)]
     test_select: Option<String>,
@@ -545,12 +549,15 @@ fn get_prompter(cli: &Cli) -> Box<dyn Prompter> {
 }
 
 async fn run_prompt(cli: Cli) -> Result<()> {
+    if cli.test_allow_non_interactive_yes && !cfg!(debug_assertions) {
+        bail!("--test-allow-non-interactive-yes is only available in debug builds");
+    }
+
     if (cli.test_select.is_some() || cli.test_input.is_some()) && !cfg!(debug_assertions) {
         bail!("--test-select/--test-input are only available in debug builds");
     }
 
     let prompter = get_prompter(&cli);
-
     // Spawn a background update check (non-blocking, throttled to once/24h)
     let update_handle = update::spawn_background_check();
 
@@ -668,7 +675,7 @@ async fn run_prompt(cli: Cli) -> Result<()> {
         }
 
         // Block --yes in non-interactive contexts to prevent script abuse
-        if !is_interactive_terminal() {
+        if !is_interactive_terminal() && !cli.test_allow_non_interactive_yes {
             println!(
                 "{}",
                 "Cannot auto-execute with -y in a non-interactive session."
@@ -1582,6 +1589,76 @@ mod tests {
         // We use a simple echo command that should always succeed
         let result = execute_script(
             "echo 'hello world'",
+            None,
+            config::DEFAULT_SCRIPT_TIMEOUT_SECS,
+            &Shell::Bash,
+        )
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_execute_script_multiline() {
+        let result = execute_script(
+            "echo line1\necho line2",
+            None,
+            config::DEFAULT_SCRIPT_TIMEOUT_SECS,
+            &Shell::Bash,
+        )
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_execute_script_with_env_var() {
+        let result = execute_script(
+            "MY_VAR=hello; [ \"$MY_VAR\" = \"hello\" ]",
+            None,
+            config::DEFAULT_SCRIPT_TIMEOUT_SECS,
+            &Shell::Bash,
+        )
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_execute_script_with_pipe() {
+        let result = execute_script(
+            "echo 'hello world' | grep 'world'",
+            None,
+            config::DEFAULT_SCRIPT_TIMEOUT_SECS,
+            &Shell::Bash,
+        )
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_execute_script_with_redirection() {
+        use std::fs;
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let script = format!("echo 'data' > '{}'", path);
+        let result = execute_script(
+            &script,
+            None,
+            config::DEFAULT_SCRIPT_TIMEOUT_SECS,
+            &Shell::Bash,
+        )
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Some(0));
+        assert_eq!(fs::read_to_string(path).unwrap().trim(), "data");
+    }
+
+    #[tokio::test]
+    async fn test_execute_script_with_special_chars() {
+        let result = execute_script(
+            "echo '\"!@#$%^&*()_+{}|:<>?`~'",
             None,
             config::DEFAULT_SCRIPT_TIMEOUT_SECS,
             &Shell::Bash,
