@@ -32,3 +32,8 @@ getrandom = "0.3"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
+mockall = "0.13"
