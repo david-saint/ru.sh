@@ -11,18 +11,18 @@ pub const MIN_PROMPT_LENGTH: usize = 3;
 /// Maximum prompt length
 pub const MAX_PROMPT_LENGTH: usize = 2000;
 
-/// Risk level for a script
+/// Represents the severity of security risks detected in a generated script.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RiskLevel {
-    /// No dangerous patterns detected
+    /// No dangerous patterns detected.
     Safe,
-    /// Minor risk, informational note
+    /// Minor risk, providing an informational note to the user.
     Low,
-    /// Moderate risk, proceed with caution
+    /// Moderate risk, advising the user to proceed with caution.
     Medium,
-    /// Significant risk, requires acknowledgment
+    /// Significant risk, requiring explicit acknowledgment before execution.
     High,
-    /// Extreme risk, requires --force flag
+    /// Extreme risk, requiring the `--force` flag for execution in non-interactive modes.
     Critical,
 }
 
@@ -38,22 +38,22 @@ impl fmt::Display for RiskLevel {
     }
 }
 
-/// Category of safety warning
+/// Categorizes the type of safety warning identified during script analysis.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WarningCategory {
-    /// System destruction risk
+    /// Potential for permanent damage to the operating system.
     SystemDestruction,
-    /// Data loss risk
+    /// Risk of unintended file deletion or data corruption.
     DataLoss,
-    /// Privilege escalation
+    /// Use of commands that grant or exploit elevated privileges (e.g., `sudo`).
     PrivilegeEscalation,
-    /// Remote code execution
+    /// Risk from downloading and executing code from the internet.
     RemoteCodeExecution,
-    /// Insecure permissions
+    /// Commands that set overly permissive file or directory permissions.
     InsecurePermissions,
-    /// Dangerous file operation
+    /// Potentially dangerous file system operations (e.g., recursive `rm`).
     DangerousFileOp,
-    /// Command substitution/eval
+    /// Use of dynamic execution primitives like `eval` or command substitution.
     DynamicExecution,
 }
 
@@ -71,31 +71,41 @@ impl fmt::Display for WarningCategory {
     }
 }
 
-/// A safety warning detected in a script
+/// A specific safety warning detected within a script.
 #[derive(Debug, Clone)]
 pub struct SafetyWarning {
+    /// The severity of this specific warning.
     pub level: RiskLevel,
+    /// The category of risk this warning belongs to.
     pub category: WarningCategory,
+    /// A human-readable description of the risk.
     pub description: String,
 }
 
-/// Complete safety analysis report for a script
+/// A comprehensive safety report for a generated script.
 #[derive(Debug)]
 pub struct SafetyReport {
+    /// The highest risk level found among all warnings in the script.
     pub overall_risk: RiskLevel,
+    /// A collection of individual safety warnings found in the script.
     pub warnings: Vec<SafetyWarning>,
+    /// Whether the script is syntactically valid for the target shell.
     pub syntax_valid: bool,
+    /// The error message if the script has syntax errors.
     pub syntax_error: Option<String>,
 }
 
 impl SafetyReport {
-    /// Check if script is safe to execute without special confirmation
+    /// Returns `true` if the script is considered safe enough for automated execution.
+    ///
+    /// A script is safe for auto-execution if it has no syntax errors and the
+    /// overall risk level is `Medium` or lower.
     #[allow(dead_code)]
     pub fn is_safe_for_auto_execute(&self) -> bool {
         self.syntax_valid && self.overall_risk <= RiskLevel::Medium
     }
 
-    /// Check if script requires --force flag with -y
+    /// Returns `true` if the script's risk level requires the `--force` flag when using `--yes`.
     pub fn requires_force(&self) -> bool {
         self.overall_risk >= RiskLevel::High
     }
@@ -538,7 +548,15 @@ fn normalize_prompt(prompt: &str) -> String {
         .collect()
 }
 
-/// Validate prompt length and content
+/// Validates the length and content of a natural language prompt.
+///
+/// This checks against minimum and maximum length requirements and scans for
+/// common prompt injection patterns.
+///
+/// # Errors
+///
+/// Returns an error string if the prompt is too short, too long, or contains
+/// suspicious injection patterns.
 pub fn validate_prompt(prompt: &str) -> Result<(), String> {
     let trimmed = prompt.trim();
 
@@ -573,7 +591,14 @@ pub fn validate_prompt(prompt: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Check script syntax for the given shell
+/// Validates the syntax of a script for the specified shell.
+///
+/// This function attempts to run a non-executing syntax check using the
+/// shell's binary (e.g., `bash -n`).
+///
+/// # Returns
+///
+/// A tuple containing a boolean (`true` if valid) and an optional error message.
 pub fn check_syntax(script: &str, shell: &Shell) -> (bool, Option<String>) {
     match shell {
         Shell::Bash => run_syntax_check("bash", &["-n", "-c", script]),
@@ -1422,7 +1447,16 @@ fn matches_critical_system_dir_path(
     false
 }
 
-/// Analyze a script for dangerous patterns, scoped to the target shell
+/// Analyzes a script for dangerous patterns and syntax validity.
+///
+/// This function performs both regex-based pattern matching for dangerous
+/// commands and a shell-specific syntax check. It accounts for shell-specific
+/// risks (e.g., Unix `rm` vs. PowerShell `Remove-Item`).
+///
+/// # Arguments
+///
+/// * `script` - The shell script to analyze.
+/// * `shell` - The target shell the script is intended for.
 pub fn analyze_script(script: &str, shell: &Shell) -> SafetyReport {
     let mut warnings = Vec::new();
     let mut max_level = RiskLevel::Safe;

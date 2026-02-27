@@ -4,6 +4,7 @@ use wasm_bindgen::prelude::*;
 
 const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 
+/// The root component of the ru.sh landing page.
 #[component]
 pub fn App() -> impl IntoView {
     provide_meta_context();

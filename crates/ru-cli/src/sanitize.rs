@@ -14,11 +14,19 @@ fn is_invisible_or_bidi_char(c: char) -> bool {
     )
 }
 
-/// Sanitize a string for safe terminal display by removing/escaping
-/// control characters and ANSI escape sequences.
+/// Sanitizes a string for safe terminal display.
 ///
-/// This prevents terminal injection attacks where malicious scripts
-/// use escape sequences to hide dangerous commands.
+/// This function removes or escapes control characters and ANSI escape sequences
+/// to prevent terminal injection attacks, where malicious scripts might use
+/// escape sequences to hide dangerous commands from the user's view.
+///
+/// # Arguments
+///
+/// * `input` - The string to sanitize.
+///
+/// # Returns
+///
+/// A `Cow<'_, str>` containing the sanitized version of the input.
 pub fn for_display(input: &str) -> Cow<'_, str> {
     // Fast path: if no control characters (except \n and \t) are present,
     // we can return the input string directly without allocation.

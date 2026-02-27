@@ -129,25 +129,33 @@ fn safe_prefix(s: &str, max_len: usize) -> &str {
     &s[..i]
 }
 
-/// A record of a script execution
+/// Represents a single record of a script generation and optional execution.
+///
+/// For privacy, the prompt and script are stored as salted SHA-256 hashes.
+/// A truncated preview of the script is kept for reference in the history log.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionRecord {
+    /// The date and time when the record was created.
     pub timestamp: DateTime<Utc>,
-    /// Salted SHA-256 hash of the prompt (for privacy)
+    /// Salted SHA-256 hash of the natural language prompt.
     pub prompt_hash: String,
-    /// Salted SHA-256 hash of the script (for privacy)
+    /// Salted SHA-256 hash of the full generated script.
     pub script_hash: String,
-    /// Truncated preview of the script for reference
+    /// A non-sensitive truncated preview of the script.
     pub script_preview: String,
+    /// The risk level assigned to the script by the safety analyzer.
     pub risk_level: String,
+    /// Whether the user chose to execute the script.
     pub executed: bool,
+    /// The exit code of the script if it was executed.
     pub exit_code: Option<i32>,
-    /// Duration of the API call in milliseconds
+    /// Duration of the API request in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
 }
 
 impl ExecutionRecord {
+    /// Creates a new execution record with salted hashes and a script preview.
     pub fn new(
         prompt: &str,
         script: &str,
@@ -169,12 +177,20 @@ impl ExecutionRecord {
     }
 }
 
-/// Get the history file path
+/// Returns the path to the history log file (`history.jsonl`).
 pub fn history_path() -> Option<PathBuf> {
     Config::dir().map(|dir| dir.join("history.jsonl"))
 }
 
-/// Log an execution to the history file
+/// Appends an execution record to the history file.
+///
+/// This function handles file creation, directory setup, and automatic
+/// history rotation if the file exceeds the size limit.
+///
+/// # Errors
+///
+/// Returns an error if the record cannot be serialized or if writing to the
+/// history file fails.
 pub fn log_execution(record: &ExecutionRecord) -> Result<()> {
     let path = history_path().context("Could not determine history path")?;
 

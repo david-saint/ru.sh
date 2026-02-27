@@ -3,11 +3,15 @@ use console::style;
 use dialoguer::{Select, theme::ColorfulTheme};
 use std::io::{self, Write};
 
+/// A trait for interacting with the user via terminal prompts.
 pub trait Prompter {
+    /// Displays a selection menu and returns the index of the chosen item.
     fn select(&self, prompt: &str, items: &[&str], default: usize) -> Result<usize>;
+    /// Prompts the user for a text input and returns the resulting string.
     fn input(&self, prompt: &str) -> Result<String>;
 }
 
+/// The standard implementation of `Prompter` using `dialoguer` for interactive menus.
 pub struct RealPrompter;
 
 impl Prompter for RealPrompter {
@@ -32,12 +36,14 @@ impl Prompter for RealPrompter {
     }
 }
 
+/// A mock implementation of `Prompter` for use in automated tests.
 pub struct TestPrompter {
     select_responses: std::sync::Mutex<Vec<usize>>,
     input_responses: std::sync::Mutex<Vec<String>>,
 }
 
 impl TestPrompter {
+    /// Creates a new `TestPrompter` with predefined responses from CSV strings.
     pub fn new(select_csv: &str, input_csv: &str) -> Self {
         let select_responses = select_csv
             .split(',')

@@ -19,9 +19,12 @@ const CHECK_INTERVAL_SECS: i64 = 24 * 60 * 60; // 24 hours
 // Persisted state
 // ---------------------------------------------------------------------------
 
+/// Manages the persistent state of the update checker.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct UpdateState {
+    /// The timestamp of the last successful update check.
     pub last_check: Option<DateTime<Utc>>,
+    /// The latest version string retrieved from GitHub.
     pub latest_version: Option<String>,
 }
 
@@ -30,6 +33,7 @@ impl UpdateState {
         Config::dir().map(|dir| dir.join("update.toml"))
     }
 
+    /// Loads the update state from the configuration directory.
     pub fn load() -> Self {
         let Some(path) = Self::path() else {
             return Self::default();
@@ -43,6 +47,7 @@ impl UpdateState {
             .unwrap_or_default()
     }
 
+    /// Saves the current update state to the configuration directory.
     pub fn save(&self) {
         let Some(path) = Self::path() else { return };
         if let Some(parent) = path.parent() {
@@ -217,8 +222,10 @@ async fn check_for_update() -> Result<Option<String>> {
 // Background check (spawned from run_prompt)
 // ---------------------------------------------------------------------------
 
-/// Spawn a background task that checks for updates if we haven't checked
-/// in the last 24 hours.  Returns `None` if the check was skipped.
+/// Spawns a background task to check for updates.
+///
+/// The check is only performed if it has been more than 24 hours since the
+/// last check. Returns `None` if the check was skipped.
 pub fn spawn_background_check() -> Option<JoinHandle<Option<String>>> {
     let state = UpdateState::load();
     if let Some(last) = state.last_check {
@@ -233,7 +240,7 @@ pub fn spawn_background_check() -> Option<JoinHandle<Option<String>>> {
     }))
 }
 
-/// Print a yellow notification on stderr suggesting `ru update`.
+/// Prints a notification to stderr informing the user that a new version is available.
 pub fn print_update_notification(new_version: &str) {
     let current = env!("CARGO_PKG_VERSION");
     eprintln!(
@@ -250,6 +257,16 @@ pub fn print_update_notification(new_version: &str) {
 // Full update flow (`ru update`)
 // ---------------------------------------------------------------------------
 
+/// Executes the full self-update flow.
+///
+/// This function checks for the latest release on GitHub, downloads the
+/// appropriate archive for the current platform, verifies its checksum,
+/// and replaces the current binary with the new version.
+///
+/// # Errors
+///
+/// Returns an error if any step of the update process fails (network,
+/// verification, or file system operations).
 pub async fn perform_update() -> Result<()> {
     let current = env!("CARGO_PKG_VERSION");
     eprintln!("{}", format!("Current version: {}", current).dimmed());
@@ -394,7 +411,7 @@ async fn download_asset_text(url: &str) -> Result<String> {
 
 /// Verify the SHA-256 checksum of `data` against an entry in `sums_text`
 /// for `file_name`.  The sums file uses the `sha256sum` output format:
-///   <hex_hash>  <filename>
+///   `<hex_hash>  <filename>`
 fn verify_checksum(data: &[u8], file_name: &str, sums_text: &str) -> Result<()> {
     let expected = sums_text
         .lines()

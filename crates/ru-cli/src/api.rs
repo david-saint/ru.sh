@@ -20,7 +20,10 @@ fn api_url() -> std::borrow::Cow<'static, str> {
 
 static VERBOSE: AtomicBool = AtomicBool::new(false);
 
-/// Set verbosity level
+/// Sets the global verbosity level for API operations.
+///
+/// When enabled, detailed error messages and debug information will be
+/// printed to stderr during API requests and error handling.
 pub fn set_verbose(verbose: bool) {
     VERBOSE.store(verbose, Ordering::Relaxed);
 }
@@ -156,7 +159,7 @@ fn build_explainer_prompt(shell: &Shell, verbosity: &ExplainVerbosity) -> String
         ),
     }
 }
-/// Shared HTTP client with timeout configuration
+/// Shared HTTP client with timeout configuration.
 static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
     reqwest::Client::builder()
         .timeout(REQUEST_TIMEOUT)
@@ -165,7 +168,9 @@ static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         .expect("Failed to create HTTP client")
 });
 
-/// Get a reference to the shared HTTP client.
+/// Returns a reference to the shared `reqwest::Client` used for all API requests.
+///
+/// The client is configured with standard timeouts for connections and requests.
 pub fn http_client() -> &'static reqwest::Client {
     &HTTP_CLIENT
 }
@@ -342,7 +347,21 @@ fn add_jitter(duration: Duration) -> Duration {
     Duration::from_secs_f64(jittered.max(0.1))
 }
 
-/// Generate a shell script from a natural language prompt using OpenRouter API
+/// Generates a shell script from a natural language prompt using the OpenRouter API.
+///
+/// This function constructs a system prompt based on the target shell, sends the
+/// request to the model, and sanitizes the response to extract a valid, executable script.
+///
+/// # Arguments
+///
+/// * `prompt` - The natural language description of the task.
+/// * `api_key` - The OpenRouter API key for authentication.
+/// * `model_id` - The ID of the LLM to use for generation.
+/// * `shell` - The target shell for which the script should be generated.
+///
+/// # Errors
+///
+/// Returns an error if the API request fails, or if the model returns an ambiguous or malformed response.
 pub async fn generate_script(
     prompt: &str,
     api_key: &str,
@@ -397,7 +416,22 @@ pub async fn generate_script(
     Ok(script)
 }
 
-/// Explain a shell script using the explainer model
+/// Explains a shell script using the specified model and verbosity level.
+///
+/// This function sends the script to the LLM with a specialized explainer prompt
+/// that describes how to break down and summarize the command for the user.
+///
+/// # Arguments
+///
+/// * `script` - The shell script to explain.
+/// * `api_key` - The OpenRouter API key for authentication.
+/// * `model_id` - The ID of the LLM to use for the explanation.
+/// * `shell` - The shell type of the script.
+/// * `verbosity` - The desired detail level of the explanation.
+///
+/// # Errors
+///
+/// Returns an error if the API request fails or the response cannot be parsed.
 pub async fn explain_script(
     script: &str,
     api_key: &str,
