@@ -15,6 +15,8 @@ pub const DEFAULT_MODEL_QUALITY: &str = "anthropic/claude-opus-4.5:nitro";
 pub const DEFAULT_MODEL_EXPLAINER: &str = "nvidia/nemotron-3-nano-30b-a3b:nitro";
 /// Default script execution timeout in seconds (5 minutes)
 pub const DEFAULT_SCRIPT_TIMEOUT_SECS: u64 = 300;
+/// Optional override for the configuration directory path
+pub const CONFIG_DIR_ENV_VAR: &str = "RU_CONFIG_DIR";
 
 /// Model preset for quick selection
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -159,6 +161,14 @@ pub struct Config {
 impl Config {
     /// Get the config directory path (~/.config/ru.sh)
     pub fn dir() -> Option<PathBuf> {
+        // Allow overriding config directory for tests and controlled environments.
+        if let Some(dir) = std::env::var_os(CONFIG_DIR_ENV_VAR) {
+            let path = PathBuf::from(dir);
+            if !path.as_os_str().is_empty() {
+                return Some(path);
+            }
+        }
+
         dirs::home_dir().map(|home| home.join(".config").join("ru.sh"))
     }
 
