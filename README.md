@@ -17,6 +17,7 @@
 - **🔒 Prompt Injection Protection**: Built-in detection of malicious prompts and instruction overrides.
 - **📜 Execution History**: Automatic logging of all prompts and generated scripts for auditing.
 - **🎭 Model Presets**: Choose between `fast`, `standard`, and `quality` models via OpenRouter.
+- **🔌 API Architecture**: [Documented integration architecture](API_INTEGRATION.md) for developers.
 - **⚙️ Flexible Configuration**: Manage API keys, models, usage limits, and timeouts via the CLI.
 - **📊 Usage Tracking**: Monitor and set limits for your daily and monthly API usage to avoid surprises.
 
