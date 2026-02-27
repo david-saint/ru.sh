@@ -62,6 +62,10 @@ struct Cli {
     /// Show verbose error messages for debugging
     #[arg(short = 'v', long, global = true)]
     verbose: bool,
+
+    /// Test-only: allow --yes in non-interactive sessions (debug builds only)
+    #[arg(long = "test-allow-non-interactive-yes", hide = true, global = true)]
+    test_allow_non_interactive_yes: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -525,6 +529,10 @@ fn handle_config(action: ConfigAction) -> Result<()> {
 }
 
 async fn run_prompt(cli: Cli) -> Result<()> {
+    if cli.test_allow_non_interactive_yes && !cfg!(debug_assertions) {
+        bail!("--test-allow-non-interactive-yes is only available in debug builds");
+    }
+
     // Spawn a background update check (non-blocking, throttled to once/24h)
     let update_handle = update::spawn_background_check();
 
@@ -642,7 +650,7 @@ async fn run_prompt(cli: Cli) -> Result<()> {
         }
 
         // Block --yes in non-interactive contexts to prevent script abuse
-        if !is_interactive_terminal() {
+        if !is_interactive_terminal() && !cli.test_allow_non_interactive_yes {
             println!(
                 "{}",
                 "Cannot auto-execute with -y in a non-interactive session."
@@ -1347,9 +1355,6 @@ fn select_theme() -> ColorfulTheme {
 }
 
 fn is_interactive_terminal() -> bool {
-    if std::env::var("RU_TEST_MODE").is_ok() {
-        return true;
-    }
     io::stdin().is_terminal() && io::stdout().is_terminal()
 }
 
