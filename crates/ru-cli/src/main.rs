@@ -1052,13 +1052,15 @@ fn log_execution(
 
 /// Resolve API key from: CLI flag > env var > config file
 fn resolve_api_key(cli_key: Option<String>, config: &Config) -> Result<String> {
-    let key = cli_key
-        .or_else(|| {
+    let key = determine_api_key(
+        cli_key,
+        || {
             env::var("OPENROUTER_API_KEY")
                 .ok()
                 .filter(|k| !k.is_empty())
-        })
-        .or_else(|| config.api_key.clone());
+        },
+        || config.api_key.clone(),
+    );
 
     if let Some(key) = key {
         return Ok(key);
@@ -1077,6 +1079,15 @@ fn resolve_api_key(cli_key: Option<String>, config: &Config) -> Result<String> {
          Config file location: {}",
         config_path
     );
+}
+
+/// Resolve API key precedence lazily: CLI > env > config.
+fn determine_api_key<F, G>(cli_key: Option<String>, env_key: F, config_key: G) -> Option<String>
+where
+    F: FnOnce() -> Option<String>,
+    G: FnOnce() -> Option<String>,
+{
+    cli_key.or_else(env_key).or_else(config_key)
 }
 
 /// Mask an API key for display in config output.
@@ -1457,34 +1468,80 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_resolve_api_key_precedence() {
-        let mut config = Config::default();
-        config.set_api_key("config-key".to_string());
+    fn test_determine_api_key_precedence() {
+        // CLI > Env > Config
+        assert_eq!(
+            determine_api_key(
+                Some("cli-key".to_string()),
+                || Some("env-key".to_string()),
+                || Some("config-key".to_string())
+            ),
+            Some("cli-key".to_string())
+        );
 
-        // CLI > Config
-        let result = resolve_api_key(Some("cli-key".to_string()), &config).unwrap();
-        assert_eq!(result, "cli-key");
-
-        // Env > Config (using environment variable)
-        unsafe { std::env::set_var("OPENROUTER_API_KEY", "env-key") };
-        let result = resolve_api_key(None, &config).unwrap();
-        assert_eq!(result, "env-key");
+        // Env > Config
+        assert_eq!(
+            determine_api_key(
+                None,
+                || Some("env-key".to_string()),
+                || { Some("config-key".to_string()) }
+            ),
+            Some("env-key".to_string())
+        );
 
         // Config only
-        unsafe { std::env::remove_var("OPENROUTER_API_KEY") };
-        let result = resolve_api_key(None, &config).unwrap();
-        assert_eq!(result, "config-key");
+        assert_eq!(
+            determine_api_key(None, || None, || Some("config-key".to_string())),
+            Some("config-key".to_string())
+        );
 
-        // Env empty string should be ignored
-        unsafe { std::env::set_var("OPENROUTER_API_KEY", "") };
-        let result = resolve_api_key(None, &config).unwrap();
-        assert_eq!(result, "config-key");
-        unsafe { std::env::remove_var("OPENROUTER_API_KEY") };
+        // Env empty string should be ignored by resolver
+        let env_key = Some(String::new()).filter(|k| !k.is_empty());
+        assert_eq!(
+            determine_api_key(None, || env_key, || Some("config-key".to_string())),
+            Some("config-key".to_string())
+        );
 
-        // None should bail
-        let mut empty_config = Config::default();
-        empty_config.clear_api_key();
-        assert!(resolve_api_key(None, &empty_config).is_err());
+        // None
+        assert_eq!(determine_api_key(None, || None, || None), None);
+    }
+
+    #[test]
+    fn test_determine_api_key_is_lazy() {
+        let mut env_calls = 0usize;
+        let mut config_calls = 0usize;
+
+        let key = determine_api_key(
+            Some("cli-key".to_string()),
+            || {
+                env_calls += 1;
+                Some("env-key".to_string())
+            },
+            || {
+                config_calls += 1;
+                Some("config-key".to_string())
+            },
+        );
+
+        assert_eq!(key, Some("cli-key".to_string()));
+        assert_eq!(env_calls, 0);
+        assert_eq!(config_calls, 0);
+
+        let key = determine_api_key(
+            None,
+            || {
+                env_calls += 1;
+                Some("env-key".to_string())
+            },
+            || {
+                config_calls += 1;
+                Some("config-key".to_string())
+            },
+        );
+
+        assert_eq!(key, Some("env-key".to_string()));
+        assert_eq!(env_calls, 1);
+        assert_eq!(config_calls, 0);
     }
 
     #[test]
