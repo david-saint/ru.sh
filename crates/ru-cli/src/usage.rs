@@ -13,33 +13,35 @@ pub const DEFAULT_DAILY_WARNING: u32 = 100;
 /// Default warning threshold for monthly requests
 pub const DEFAULT_MONTHLY_WARNING: u32 = 1000;
 
-/// Usage statistics tracking
+/// Tracks API usage statistics for rate limit warnings.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UsageStats {
-    /// Number of requests made today
+    /// Number of requests made on the current day.
     pub requests_today: u32,
-    /// Date of last request
+    /// The date of the last successful API request.
     pub last_request_date: Option<NaiveDate>,
-    /// Number of requests this month
+    /// Number of requests made in the current calendar month.
     pub requests_this_month: u32,
-    /// Total requests all time
+    /// Total number of successful requests made across all time.
     pub total_requests: u32,
 }
 
-/// Warning about usage limits
+/// Represents a warning triggered when usage approaches or exceeds limits.
 #[derive(Debug, Clone)]
 pub struct UsageWarning {
+    /// A human-readable message describing the usage state.
     pub message: String,
+    /// Whether the usage has strictly exceeded the configured hard limit.
     pub is_limit_exceeded: bool,
 }
 
 impl UsageStats {
-    /// Get the usage file path
+    /// Returns the path to the usage statistics file (`usage.toml`).
     pub fn path() -> Option<PathBuf> {
         Config::dir().map(|dir| dir.join("usage.toml"))
     }
 
-    /// Load usage stats from file
+    /// Loads the usage statistics from the default file path.
     pub fn load() -> Result<Self> {
         let path = match Self::path() {
             Some(p) => p,
@@ -48,7 +50,9 @@ impl UsageStats {
         Self::load_from(path)
     }
 
-    /// Load usage stats from a specific path
+    /// Loads the usage statistics from a specific file path.
+    ///
+    /// If the file is corrupted, it is backed up and fresh statistics are returned.
     pub fn load_from(path: PathBuf) -> Result<Self> {
         if !path.exists() {
             return Ok(Self::default());
@@ -90,13 +94,13 @@ impl UsageStats {
         Ok(stats)
     }
 
-    /// Save usage stats to file
+    /// Saves the current usage statistics to the default file path.
     pub fn save(&self) -> Result<()> {
         let path = Self::path().context("Could not determine usage path")?;
         self.save_to(path)
     }
 
-    /// Save usage stats to a specific path
+    /// Saves the current usage statistics to a specific file path.
     pub fn save_to(&self, path: PathBuf) -> Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).with_context(|| {
@@ -151,7 +155,9 @@ impl UsageStats {
         }
     }
 
-    /// Increment usage counters
+    /// Increments the usage counters and updates the last request date.
+    ///
+    /// This automatically calls `reset_if_needed` before incrementing.
     pub fn increment(&mut self) {
         let now = Utc::now().date_naive();
 
@@ -166,7 +172,9 @@ impl UsageStats {
         self.total_requests += 1;
     }
 
-    /// Check usage against limits and return any warnings
+    /// Checks the current statistics against provided limits.
+    ///
+    /// If no explicit limits are provided, it uses the default warning thresholds.
     pub fn check_limits(
         &self,
         daily_limit: Option<u32>,
@@ -213,10 +221,10 @@ impl UsageStats {
     }
 }
 
-/// Check usage limits without incrementing counters.
+/// Checks API usage against limits without modifying the stored statistics.
 ///
-/// This is used before an API call so requests are blocked only when limits
-/// are already exceeded.
+/// This is typically called before making an API request to prevent
+/// exceeding configured thresholds.
 pub fn check_usage(
     daily_limit: Option<u32>,
     monthly_limit: Option<u32>,
@@ -225,7 +233,7 @@ pub fn check_usage(
     Ok(stats.check_limits(daily_limit, monthly_limit))
 }
 
-/// Record one successful API request.
+/// Increments the persistent usage statistics by one.
 pub fn record_successful_request() -> Result<()> {
     let mut stats = UsageStats::load()?;
     stats.increment();

@@ -5,29 +5,29 @@ use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-/// Default model for Fast preset
+/// Default model used for the "fast" model preset.
 pub const DEFAULT_MODEL_FAST: &str = "google/gemini-2.5-flash:nitro";
-/// Default model for Standard preset
+/// Default model used for the "standard" model preset.
 pub const DEFAULT_MODEL_STANDARD: &str = "google/gemini-3-flash-preview:nitro";
-/// Default model for Quality preset
+/// Default model used for the "quality" model preset.
 pub const DEFAULT_MODEL_QUALITY: &str = "anthropic/claude-opus-4.5:nitro";
-/// Default model for Explainer
+/// Default model used for the explainer feature.
 pub const DEFAULT_MODEL_EXPLAINER: &str = "nvidia/nemotron-3-nano-30b-a3b:nitro";
-/// Default script execution timeout in seconds (5 minutes)
+/// Default timeout for script execution in seconds (5 minutes).
 pub const DEFAULT_SCRIPT_TIMEOUT_SECS: u64 = 300;
-/// Optional override for the configuration directory path
+/// Environment variable name for overriding the configuration directory path.
 pub const CONFIG_DIR_ENV_VAR: &str = "RU_CONFIG_DIR";
 
-/// Model preset for quick selection
+/// Model preset for quick selection of LLM balance between speed and quality.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModelPreset {
-    /// Fastest response time
+    /// Optimized for the fastest response time.
     Fast,
-    /// Best balance of quality, speed, and cost
+    /// The default preset, providing a balance of quality, speed, and cost.
     #[default]
     Standard,
-    /// Highest quality output
+    /// Optimized for the highest quality and accuracy of generated scripts.
     Quality,
 }
 
@@ -59,25 +59,25 @@ impl FromStr for ModelPreset {
     }
 }
 
-/// Custom model overrides for each preset
+/// Persistent custom model overrides for each of the available presets.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct PresetModels {
-    /// Custom model for the "fast" preset
+    /// Optional custom model ID to use for the "fast" preset.
     pub fast: Option<String>,
-    /// Custom model for the "standard" preset
+    /// Optional custom model ID to use for the "standard" preset.
     pub standard: Option<String>,
-    /// Custom model for the "quality" preset
+    /// Optional custom model ID to use for the "quality" preset.
     pub quality: Option<String>,
 }
 
-/// Verbosity level for script explanations
+/// Defines the level of detail provided in script explanations.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ExplainVerbosity {
-    /// Concise 2-3 sentence summary
+    /// Provides a concise 2-3 sentence summary of what the script does.
     #[default]
     Concise,
-    /// Detailed step-by-step explanation
+    /// Provides a detailed, step-by-step breakdown of the script's logic and risks.
     Verbose,
 }
 
@@ -106,7 +106,7 @@ impl FromStr for ExplainVerbosity {
 }
 
 impl PresetModels {
-    /// Get custom model for a preset
+    /// Returns the custom model ID for a specific preset, if one is configured.
     pub fn get(&self, preset: &ModelPreset) -> Option<&str> {
         match preset {
             ModelPreset::Fast => self.fast.as_deref(),
@@ -115,7 +115,7 @@ impl PresetModels {
         }
     }
 
-    /// Set custom model for a preset
+    /// Sets a custom model ID for a specific preset.
     pub fn set(&mut self, preset: &ModelPreset, model_id: String) {
         match preset {
             ModelPreset::Fast => self.fast = Some(model_id),
@@ -124,7 +124,7 @@ impl PresetModels {
         }
     }
 
-    /// Clear custom model for a preset
+    /// Clears the custom model ID for a specific preset, reverting it to the default.
     pub fn clear(&mut self, preset: &ModelPreset) {
         match preset {
             ModelPreset::Fast => self.fast = None,
@@ -134,32 +134,34 @@ impl PresetModels {
     }
 }
 
+/// Application configuration settings for `ru-cli`.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
+    /// OpenRouter API key for authentication.
     pub api_key: Option<String>,
-    /// Model preset (fast, standard, quality)
+    /// The currently active model preset.
     pub model_preset: Option<ModelPreset>,
-    /// Custom model ID (overrides preset for one-time use via CLI)
+    /// A custom model ID that overrides the preset for a single execution.
     pub custom_model: Option<String>,
-    /// Custom model overrides per preset (persisted in config)
+    /// User-configured persistent model overrides for each preset.
     #[serde(default)]
     pub preset_models: PresetModels,
-    /// Custom model for the explainer feature
+    /// Custom model ID to use for explaining scripts.
     pub explainer_model: Option<String>,
-    /// Verbosity level for script explanations (concise or verbose)
+    /// The verbosity level for the explainer feature.
     pub explain_verbosity: Option<ExplainVerbosity>,
-    /// Target shell (bash, zsh, sh, fish, powershell, cmd)
+    /// The target shell for script generation and execution.
     pub shell: Option<String>,
-    /// Daily request limit (warning threshold)
+    /// Daily request limit threshold for warnings.
     pub daily_limit: Option<u32>,
-    /// Monthly request limit (warning threshold)
+    /// Monthly request limit threshold for warnings.
     pub monthly_limit: Option<u32>,
-    /// Script execution timeout in seconds
+    /// Maximum time in seconds a generated script is allowed to run.
     pub script_timeout: Option<u64>,
 }
 
 impl Config {
-    /// Get the config directory path (~/.config/ru.sh)
+    /// Returns the path to the configuration directory (defaults to `~/.config/ru.sh`).
     pub fn dir() -> Option<PathBuf> {
         // Allow overriding config directory for tests and controlled environments.
         if let Some(dir) = std::env::var_os(CONFIG_DIR_ENV_VAR) {
@@ -172,12 +174,14 @@ impl Config {
         dirs::home_dir().map(|home| home.join(".config").join("ru.sh"))
     }
 
-    /// Get the config file path (~/.config/ru/config.toml)
+    /// Returns the full path to the configuration file (`config.toml`).
     pub fn path() -> Option<PathBuf> {
         Self::dir().map(|dir| dir.join("config.toml"))
     }
 
-    /// Load config from file, returning default if file doesn't exist
+    /// Loads the configuration from the default file path.
+    ///
+    /// If the file does not exist, a default configuration is returned.
     pub fn load() -> Result<Self> {
         let Some(path) = Self::path() else {
             return Ok(Self::default());
@@ -185,7 +189,9 @@ impl Config {
         Self::load_from(path)
     }
 
-    /// Load config from a specific path
+    /// Loads the configuration from a specific file path.
+    ///
+    /// If parsing fails, the corrupted file is backed up and a default configuration is returned.
     pub fn load_from(path: PathBuf) -> Result<Self> {
         if !path.exists() {
             return Ok(Self::default());
@@ -222,13 +228,13 @@ impl Config {
         }
     }
 
-    /// Save config to file, creating directory if needed
+    /// Saves the current configuration to the default file path.
     pub fn save(&self) -> Result<()> {
         let path = Self::path().context("Could not determine config path")?;
         self.save_to(path)
     }
 
-    /// Save config to a specific path
+    /// Saves the current configuration to a specific file path.
     pub fn save_to(&self, path: PathBuf) -> Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).with_context(|| {
@@ -264,65 +270,65 @@ impl Config {
         Ok(())
     }
 
-    /// Get the API key from config
+    /// Returns the configured API key, if any.
     pub fn get_api_key(&self) -> Option<&str> {
         self.api_key.as_deref()
     }
 
-    /// Set the API key in config
+    /// Sets the API key in the configuration.
     pub fn set_api_key(&mut self, key: String) {
         self.api_key = Some(key);
     }
 
-    /// Clear the API key from config
+    /// Clears the API key from the configuration.
     pub fn clear_api_key(&mut self) {
         self.api_key = None;
     }
 
-    /// Get the model preset from config
+    /// Returns the active model preset, falling back to the default if not set.
     pub fn get_model_preset(&self) -> ModelPreset {
         self.model_preset.clone().unwrap_or_default()
     }
 
-    /// Set the model preset in config
+    /// Sets the active model preset. This clears any existing one-time custom model.
     pub fn set_model_preset(&mut self, preset: ModelPreset) {
         self.model_preset = Some(preset);
         // Clear custom model when setting a preset
         self.custom_model = None;
     }
 
-    /// Get the custom model ID from config
+    /// Returns the one-time custom model ID, if set.
     pub fn get_custom_model(&self) -> Option<&str> {
         self.custom_model.as_deref()
     }
 
-    /// Set a custom model ID in config
+    /// Sets a one-time custom model ID.
     pub fn set_custom_model(&mut self, model_id: String) {
         self.custom_model = Some(model_id);
     }
 
-    /// Clear model settings from config
+    /// Clears both the preset and any custom model settings.
     pub fn clear_model(&mut self) {
         self.model_preset = None;
         self.custom_model = None;
     }
 
-    /// Set a custom model for a specific preset
+    /// Configures a persistent custom model for a specific preset.
     pub fn set_preset_model(&mut self, preset: &ModelPreset, model_id: String) {
         self.preset_models.set(preset, model_id);
     }
 
-    /// Clear custom model for a specific preset (revert to default)
+    /// Clears the persistent custom model for a specific preset.
     pub fn clear_preset_model(&mut self, preset: &ModelPreset) {
         self.preset_models.clear(preset);
     }
 
-    /// Get the custom model for a preset (if any)
+    /// Returns the persistent custom model configured for a specific preset.
     pub fn get_preset_model(&self, preset: &ModelPreset) -> Option<&str> {
         self.preset_models.get(preset)
     }
 
-    /// Get the default model ID for a preset (ignoring custom overrides)
+    /// Returns the default model ID for the given preset.
     pub fn get_default_model_id(preset: &ModelPreset) -> &'static str {
         match preset {
             ModelPreset::Fast => DEFAULT_MODEL_FAST,
@@ -331,8 +337,9 @@ impl Config {
         }
     }
 
-    /// Get the effective model ID based on config
-    /// Priority: custom_model > preset custom override > preset default
+    /// Returns the effective model ID based on configuration precedence.
+    ///
+    /// Priority: `custom_model` (one-time) > preset custom override > preset default.
     pub fn get_model_id(&self) -> &str {
         // 1. CLI custom_model takes highest priority
         if let Some(custom) = &self.custom_model {
@@ -350,96 +357,94 @@ impl Config {
         Self::get_default_model_id(&preset)
     }
 
-    /// Set the explainer model
+    /// Sets a custom model ID for the explainer feature.
     pub fn set_explainer_model(&mut self, model_id: String) {
         self.explainer_model = Some(model_id);
     }
 
-    /// Clear the explainer model (revert to default)
+    /// Clears the custom explainer model, reverting it to the default.
     pub fn clear_explainer_model(&mut self) {
         self.explainer_model = None;
     }
 
-    /// Get the effective explainer model ID
-    /// Returns custom override if set, otherwise default
+    /// Returns the effective model ID to be used for script explanations.
     pub fn get_explainer_model(&self) -> &str {
         self.explainer_model
             .as_deref()
             .unwrap_or(DEFAULT_MODEL_EXPLAINER)
     }
 
-    /// Get the explain verbosity level
-    /// Returns Concise by default if not set
+    /// Returns the configured explain verbosity level.
     pub fn get_explain_verbosity(&self) -> ExplainVerbosity {
         self.explain_verbosity.clone().unwrap_or_default()
     }
 
-    /// Set the explain verbosity level
+    /// Sets the verbosity level for script explanations.
     pub fn set_explain_verbosity(&mut self, verbosity: ExplainVerbosity) {
         self.explain_verbosity = Some(verbosity);
     }
 
-    /// Clear the explain verbosity (revert to default: concise)
+    /// Clears the explain verbosity setting, reverting it to the default.
     pub fn clear_explain_verbosity(&mut self) {
         self.explain_verbosity = None;
     }
 
-    /// Get the daily request limit
+    /// Returns the daily request limit threshold.
     pub fn get_daily_limit(&self) -> Option<u32> {
         self.daily_limit
     }
 
-    /// Set the daily request limit
+    /// Sets the daily request limit threshold.
     pub fn set_daily_limit(&mut self, limit: u32) {
         self.daily_limit = Some(limit);
     }
 
-    /// Clear the daily request limit
+    /// Clears the daily request limit threshold.
     pub fn clear_daily_limit(&mut self) {
         self.daily_limit = None;
     }
 
-    /// Get the monthly request limit
+    /// Returns the monthly request limit threshold.
     pub fn get_monthly_limit(&self) -> Option<u32> {
         self.monthly_limit
     }
 
-    /// Set the monthly request limit
+    /// Sets the monthly request limit threshold.
     pub fn set_monthly_limit(&mut self, limit: u32) {
         self.monthly_limit = Some(limit);
     }
 
-    /// Clear the monthly request limit
+    /// Clears the monthly request limit threshold.
     pub fn clear_monthly_limit(&mut self) {
         self.monthly_limit = None;
     }
 
-    /// Get the script execution timeout in seconds
+    /// Returns the script execution timeout in seconds.
     pub fn get_script_timeout(&self) -> u64 {
         self.script_timeout.unwrap_or(DEFAULT_SCRIPT_TIMEOUT_SECS)
     }
 
-    /// Set the script execution timeout in seconds
+    /// Sets the script execution timeout in seconds.
     pub fn set_script_timeout(&mut self, timeout: u64) {
         self.script_timeout = Some(timeout);
     }
 
-    /// Clear the script execution timeout (revert to default)
+    /// Clears the script execution timeout, reverting it to the default.
     pub fn clear_script_timeout(&mut self) {
         self.script_timeout = None;
     }
 
-    /// Get the shell setting
+    /// Returns the manually configured target shell, if any.
     pub fn get_shell(&self) -> Option<&str> {
         self.shell.as_deref()
     }
 
-    /// Set the shell
+    /// Sets the target shell.
     pub fn set_shell(&mut self, shell: String) {
         self.shell = Some(shell);
     }
 
-    /// Clear the shell (revert to auto-detect)
+    /// Clears the target shell configuration, reverting to auto-detection.
     pub fn clear_shell(&mut self) {
         self.shell = None;
     }

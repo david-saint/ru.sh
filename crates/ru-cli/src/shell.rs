@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
-/// Supported shell types for script generation and execution
+/// Represents the various shell environments supported by `ru-cli`.
+///
+/// Each variant provides metadata about how to interact with the corresponding
+/// shell binary and how to format commands for it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[allow(clippy::enum_variant_names)]
@@ -17,7 +20,9 @@ pub enum Shell {
 }
 
 impl Shell {
-    /// Detect the current shell from the environment
+    /// Detects the current shell environment from environment variables.
+    ///
+    /// On Unix, this primarily looks at the `SHELL` variable.
     #[cfg(unix)]
     pub fn detect() -> Self {
         if let Ok(shell_env) = std::env::var("SHELL") {
@@ -34,7 +39,9 @@ impl Shell {
         }
     }
 
-    /// Detect the current shell from the environment
+    /// Detects the current shell environment from environment variables.
+    ///
+    /// On Windows, this looks for `PSModulePath` to identify PowerShell or `COMSPEC` for `cmd.exe`.
     #[cfg(windows)]
     pub fn detect() -> Self {
         // If PSModulePath is set, likely running in PowerShell
@@ -50,13 +57,13 @@ impl Shell {
         Shell::PowerShell
     }
 
-    /// Detect the current shell from the environment (fallback for other platforms)
+    /// Detects the current shell from the environment (fallback for other platforms).
     #[cfg(not(any(unix, windows)))]
     pub fn detect() -> Self {
         Shell::Bash
     }
 
-    /// Get the shell binary name
+    /// Returns the binary name or path used to execute commands for this shell.
     pub fn binary(&self) -> &str {
         match self {
             Shell::Bash => "bash",
@@ -75,7 +82,7 @@ impl Shell {
         }
     }
 
-    /// Get the arguments needed to execute a script string
+    /// Returns the standard arguments required by the shell binary to execute a script string.
     pub fn exec_args(&self) -> &[&str] {
         match self {
             Shell::Bash | Shell::Zsh | Shell::Sh => &["-c"],
@@ -85,18 +92,18 @@ impl Shell {
         }
     }
 
-    /// Check if this is a Unix-family shell
+    /// Returns `true` if this shell belongs to the Unix family (e.g., bash, zsh).
     pub fn is_unix(&self) -> bool {
         matches!(self, Shell::Bash | Shell::Zsh | Shell::Sh | Shell::Fish)
     }
 
-    /// Check if this is a Windows-family shell
+    /// Returns `true` if this shell belongs to the Windows family (e.g., cmd.exe).
     #[allow(dead_code)]
     pub fn is_windows(&self) -> bool {
         matches!(self, Shell::PowerShell | Shell::Cmd)
     }
 
-    /// Get a human-friendly display name for prompts and messages
+    /// Returns a human-friendly display name for the shell.
     pub fn display_name(&self) -> &str {
         match self {
             Shell::Bash => "Bash",
