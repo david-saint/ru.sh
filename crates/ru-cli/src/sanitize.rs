@@ -28,17 +28,25 @@ fn is_invisible_or_bidi_char(c: char) -> bool {
 ///
 /// A `Cow<'_, str>` containing the sanitized version of the input.
 pub fn for_display(input: &str) -> Cow<'_, str> {
-    // Fast path: if no control characters (except \n and \t) are present,
-    // we can return the input string directly without allocation.
-    if input
-        .chars()
-        .all(|c| (!c.is_ascii_control() || c == '\n' || c == '\t') && !is_invisible_or_bidi_char(c))
-    {
-        return Cow::Borrowed(input);
-    }
+    // Fast path: find the first character that requires escaping.
+    // By using `find`, we avoid calling `.all()` which checks the whole string
+    // before we even start building the result string.
+    let bad_idx = input.find(|c: char| {
+        (c.is_ascii_control() && c != '\n' && c != '\t') || is_invisible_or_bidi_char(c)
+    });
 
-    let mut result = String::with_capacity(input.len());
-    let mut chars = input.chars().peekable();
+    let Some(bad_idx) = bad_idx else {
+        return Cow::Borrowed(input);
+    };
+
+    // We allocate with some extra capacity because escape sequences will increase the length.
+    let mut result = String::with_capacity(input.len() + 16);
+
+    // Copy the safe prefix exactly as is
+    result.push_str(&input[..bad_idx]);
+
+    // Process the remaining characters
+    let mut chars = input[bad_idx..].chars().peekable();
 
     while let Some(c) = chars.next() {
         match c {
@@ -65,7 +73,8 @@ pub fn for_display(input: &str) -> Cow<'_, str> {
             '\x7f' => result.push_str("\\x7f"), // DEL
             // Render invisible/bidi Unicode controls visibly to prevent spoofing
             c if is_invisible_or_bidi_char(c) => {
-                result.push_str(&format!("\\u{{{:04X}}}", c as u32));
+                use std::fmt::Write;
+                let _ = write!(result, "\\u{{{:04X}}}", c as u32);
             }
             // Allow normal printable chars, newlines, tabs
             c if c.is_ascii_graphic() || c == ' ' || c == '\n' || c == '\t' => {
@@ -73,7 +82,8 @@ pub fn for_display(input: &str) -> Cow<'_, str> {
             }
             // Escape other control characters
             c if c.is_ascii_control() => {
-                result.push_str(&format!("\\x{:02x}", c as u8));
+                use std::fmt::Write;
+                let _ = write!(result, "\\x{:02x}", c as u8);
             }
             // Allow non-ASCII (UTF-8) characters
             c => result.push(c),

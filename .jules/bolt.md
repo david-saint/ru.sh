@@ -17,3 +17,7 @@
 ## 2026-02-25 - [Lazy API Key Resolution]
 **Learning:** Fetching environment variables and cloning configuration strings eagerly in `resolve_api_key` causes redundant syscalls and allocations even when the API key is provided via CLI flags.
 **Action:** Implemented lazy evaluation using `.or_else()` closures. This ensures `env::var()` and `config.api_key.clone()` are only executed if higher-precedence sources are missing. Synthetic benchmarks showed a ~4.5x speedup (27ms -> 6ms for 100k iterations) in the CLI-provided path.
+
+## 2024-03-01 - Optimizing String Iteration with Find
+**Learning:** Checking string properties with `all()` before falling back to full iteration and processing introduces a significant double-iteration penalty in the worst case (and a minor overhead in the best case).
+**Action:** Use `.find()` or `.position()` to locate the index of the first character that deviates from the fast-path condition. This allows slicing and copying the safe prefix in bulk (`&input[..bad_idx]`), avoiding double-iteration and improving both branch prediction and instruction cache utilization. When re-allocating a string to add escapes, pre-calculate or estimate the necessary capacity to avoid mid-loop reallocation (e.g., `String::with_capacity(len + padding)`).
