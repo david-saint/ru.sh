@@ -18,6 +18,29 @@ pub const DEFAULT_SCRIPT_TIMEOUT_SECS: u64 = 300;
 /// Environment variable name for overriding the configuration directory path.
 pub const CONFIG_DIR_ENV_VAR: &str = "RU_CONFIG_DIR";
 
+/// Ensure that a directory is created securely with restricted permissions.
+/// On Unix systems, this applies `0o700` permissions.
+pub fn ensure_secure_dir(path: &std::path::Path) -> Result<()> {
+    if path.exists() {
+        return Ok(());
+    }
+
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+
+    builder
+        .create(path)
+        .with_context(|| format!("Failed to create secure directory: {}", path.display()))?;
+
+    Ok(())
+}
+
 /// Model preset for quick selection of LLM balance between speed and quality.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -237,9 +260,7 @@ impl Config {
     /// Saves the current configuration to a specific file path.
     pub fn save_to(&self, path: PathBuf) -> Result<()> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).with_context(|| {
-                format!("Failed to create config directory: {}", parent.display())
-            })?;
+            ensure_secure_dir(parent)?;
         }
 
         let contents = toml::to_string_pretty(self).context("Failed to serialize config")?;
