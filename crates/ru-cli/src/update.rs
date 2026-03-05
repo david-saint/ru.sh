@@ -51,7 +51,7 @@ impl UpdateState {
     pub fn save(&self) {
         let Some(path) = Self::path() else { return };
         if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent);
+            let _ = crate::config::ensure_secure_dir(parent);
         }
         if let Ok(contents) = toml::to_string_pretty(self) {
             #[cfg(unix)]
