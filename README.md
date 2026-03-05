@@ -27,7 +27,7 @@
 ### Quick Install (macOS & Linux)
 
 ```bash
-curl -sL https://ru.sh/install | bash
+curl -sL https://ru-sh.dev/install | bash
 ```
 
 ### From Source

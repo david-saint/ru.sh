@@ -37,3 +37,8 @@
 **Vulnerability:** The list of critical system directories in `safety.rs` was incomplete, missing Linux virtual filesystems (`/sys`, `/proc`, `/dev`) and macOS system roots (`/System`, `/Library`, `/Applications`). This allowed `rm -rf /sys` to be classified as Medium/High risk instead of Critical.
 **Learning:** Default lists of "critical directories" often focus on standard Unix FHS (`/etc`, `/bin`) but miss virtual filesystems (which can cause kernel instability if written to/deleted from) and OS-specific roots (macOS).
 **Prevention:** Explicitly include all top-level system directories for target operating systems (Linux, macOS) in critical path checks.
+
+## 2025-03-05 - Secure Configuration Directory Creation
+**Vulnerability:** The application stored sensitive data (API keys, script history containing prompts and script hashes) in the `~/.config/ru.sh` directory. While the files themselves were correctly created with restricted permissions (`0600`), the parent directory was created using `fs::create_dir_all`, which relies on the system umask and can result in world-readable and world-executable directories (e.g., `0777` modified by umask). This could allow other users on the system to list the directory contents, observe file metadata, and attempt side-channel attacks.
+**Learning:** Even if files contain restricted permissions, the enclosing directory must also be restricted to provide defense-in-depth, especially when it holds sensitive configurations.
+**Prevention:** Use `std::fs::DirBuilder` to explicitly set secure permissions (`mode(0o700)`) on Unix systems when creating configuration directories, rather than relying on `fs::create_dir_all`. A reusable pattern `ensure_secure_dir` was created to centralize this security measure.

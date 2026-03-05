@@ -103,9 +103,7 @@ impl UsageStats {
     /// Saves the current usage statistics to a specific file path.
     pub fn save_to(&self, path: PathBuf) -> Result<()> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).with_context(|| {
-                format!("Failed to create usage directory: {}", parent.display())
-            })?;
+            crate::config::ensure_secure_dir(parent)?;
         }
 
         let contents = toml::to_string_pretty(self).context("Failed to serialize usage stats")?;

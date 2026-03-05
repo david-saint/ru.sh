@@ -57,7 +57,7 @@ fn load_or_create_history_salt() -> String {
     let salt = generate_salt().unwrap_or_else(fallback_history_salt);
 
     if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
+        let _ = crate::config::ensure_secure_dir(parent);
     }
 
     #[cfg(unix)]
@@ -194,10 +194,9 @@ pub fn history_path() -> Option<PathBuf> {
 pub fn log_execution(record: &ExecutionRecord) -> Result<()> {
     let path = history_path().context("Could not determine history path")?;
 
-    // Ensure parent directory exists
+    // Ensure parent directory exists securely
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("Failed to create history directory: {}", parent.display()))?;
+        crate::config::ensure_secure_dir(parent)?;
     }
 
     // Check if rotation is needed
