@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::fmt::Write;
 
 fn is_invisible_or_bidi_char(c: char) -> bool {
     matches!(
@@ -73,8 +74,7 @@ pub fn for_display(input: &str) -> Cow<'_, str> {
             '\x7f' => result.push_str("\\x7f"), // DEL
             // Render invisible/bidi Unicode controls visibly to prevent spoofing
             c if is_invisible_or_bidi_char(c) => {
-                use std::fmt::Write;
-                let _ = write!(result, "\\u{{{:04X}}}", c as u32);
+                write!(result, "\\u{{{:04X}}}", c as u32).expect("String format never fails");
             }
             // Allow normal printable chars, newlines, tabs
             c if c.is_ascii_graphic() || c == ' ' || c == '\n' || c == '\t' => {
@@ -82,8 +82,7 @@ pub fn for_display(input: &str) -> Cow<'_, str> {
             }
             // Escape other control characters
             c if c.is_ascii_control() => {
-                use std::fmt::Write;
-                let _ = write!(result, "\\x{:02x}", c as u8);
+                write!(result, "\\x{:02x}", c as u8).expect("String format never fails");
             }
             // Allow non-ASCII (UTF-8) characters
             c => result.push(c),
