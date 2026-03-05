@@ -41,7 +41,7 @@ pub fn for_display(input: &str) -> Cow<'_, str> {
     };
 
     // We allocate with some extra capacity because escape sequences will increase the length.
-    let mut result = String::with_capacity(input.len() + 16);
+    let mut result = String::with_capacity(input.len().saturating_add(16));
 
     // Copy the safe prefix exactly as is
     result.push_str(&input[..bad_idx]);
