@@ -18,13 +18,56 @@ pub const DEFAULT_SCRIPT_TIMEOUT_SECS: u64 = 300;
 /// Environment variable name for overriding the configuration directory path.
 pub const CONFIG_DIR_ENV_VAR: &str = "RU_CONFIG_DIR";
 
-/// Ensure that a directory is created securely with restricted permissions.
-/// On Unix systems, this applies `0o700` permissions.
+/// Ensure that a directory exists with restricted permissions (`0o700` on Unix).
+///
+/// If the directory already exists, its permissions are corrected to `0o700`.
+/// If it does not exist, it is created (along with any missing parent directories).
+///
+/// **Note:** On Unix, only the *target* directory receives `0o700` permissions.
+/// Intermediate parent directories (e.g. `~/.config`) are created with the
+/// process's default umask-derived permissions, since they may be shared with
+/// other applications and should not be locked down.
 pub fn ensure_secure_dir(path: &std::path::Path) -> Result<()> {
     if path.exists() {
+        // Fix permissions on an already-existing directory that may have been
+        // created with a permissive umask (e.g. 0o755) by a prior version.
+        // Only attempt the change if the current mode differs from 0o700 and
+        // we own the directory, to avoid EPERM on system-managed directories.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            use std::os::unix::fs::PermissionsExt;
+
+            let metadata = fs::metadata(path).with_context(|| {
+                format!(
+                    "Failed to read metadata for existing directory: {}",
+                    path.display()
+                )
+            })?;
+
+            let current_mode = metadata.permissions().mode() & 0o777;
+            let uid = unsafe { libc::getuid() };
+
+            if current_mode != 0o700 && metadata.uid() == uid {
+                let mut permissions = metadata.permissions();
+                permissions.set_mode(0o700);
+
+                fs::set_permissions(path, permissions).with_context(|| {
+                    format!(
+                        "Failed to update permissions for existing directory: {}",
+                        path.display()
+                    )
+                })?;
+            }
+        }
+
         return Ok(());
     }
 
+    // Create the directory tree. On Unix, DirBuilder with recursive(true) only
+    // applies the explicit mode to the final path component; intermediate
+    // directories receive umask-derived permissions. This is intentional —
+    // shared parents like ~/.config should not be restricted to 0o700.
     let mut builder = fs::DirBuilder::new();
     builder.recursive(true);
 
@@ -746,6 +789,100 @@ mod tests {
 
         let config = Config::load_from(path)?;
         assert_eq!(config.api_key, None);
+        Ok(())
+    }
+
+    #[test]
+    fn test_ensure_secure_dir_creates_new_directory() -> Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let dir = tmp.path().join("new_secure_dir");
+
+        assert!(!dir.exists());
+        ensure_secure_dir(&dir)?;
+        assert!(dir.exists());
+        assert!(dir.is_dir());
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&dir)?.permissions().mode() & 0o777;
+            assert_eq!(mode, 0o700, "New directory should have 0700 permissions");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_ensure_secure_dir_idempotent_on_existing() -> Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let dir = tmp.path().join("existing_dir");
+
+        // Create the directory first
+        fs::create_dir(&dir)?;
+        assert!(dir.exists());
+
+        // Calling ensure_secure_dir on an existing directory should succeed
+        ensure_secure_dir(&dir)?;
+        assert!(dir.exists());
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&dir)?.permissions().mode() & 0o777;
+            assert_eq!(
+                mode, 0o700,
+                "Existing directory should be corrected to 0700 permissions"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_ensure_secure_dir_corrects_permissive_permissions() -> Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir()?;
+        let dir = tmp.path().join("permissive_dir");
+
+        // Create directory with overly permissive permissions (0755)
+        fs::create_dir(&dir)?;
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755))?;
+        let mode = fs::metadata(&dir)?.permissions().mode() & 0o777;
+        assert_eq!(mode, 0o755, "Directory should start with 0755 permissions");
+
+        // ensure_secure_dir should correct to 0700
+        ensure_secure_dir(&dir)?;
+        let mode = fs::metadata(&dir)?.permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o700,
+            "Directory with 0755 should be corrected to 0700"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_ensure_secure_dir_creates_nested_path() -> Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let dir = tmp.path().join("parent").join("child").join("target");
+
+        assert!(!dir.exists());
+        ensure_secure_dir(&dir)?;
+        assert!(dir.exists());
+        assert!(dir.is_dir());
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&dir)?.permissions().mode() & 0o777;
+            assert_eq!(
+                mode, 0o700,
+                "Target directory in nested path should have 0700 permissions"
+            );
+        }
+
         Ok(())
     }
 }
