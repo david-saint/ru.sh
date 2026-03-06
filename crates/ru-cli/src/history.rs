@@ -283,22 +283,19 @@ fn rotate_history(path: &PathBuf) -> Result<()> {
 
     for line in lines {
         // Trim trailing whitespace (including \n) and ensure exactly one newline
-        writeln!(writer, "{}", line.trim_end())
-            .with_context(|| {
-                format!(
-                    "Failed to write truncated history to {} during rotation",
-                    path.display()
-                )
-            })?;
-    }
-    writer
-        .flush()
-        .with_context(|| {
+        writeln!(writer, "{}", line.trim_end()).with_context(|| {
             format!(
-                "Failed to flush truncated history to {} during rotation",
+                "Failed to write truncated history to {} during rotation",
                 path.display()
             )
         })?;
+    }
+    writer.flush().with_context(|| {
+        format!(
+            "Failed to flush truncated history to {} during rotation",
+            path.display()
+        )
+    })?;
 
     Ok(())
 }
