@@ -137,61 +137,55 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                 "explain-verbosity" | "explain_verbosity" => {
                     let verbosity: ExplainVerbosity =
                         value.parse().map_err(|e: String| anyhow::anyhow!(e))?;
-                    config.set_explain_verbosity(verbosity.clone());
+                    let msg = format!("Explain verbosity set to: {}", verbosity).green();
+                    config.set_explain_verbosity(verbosity);
                     config.save()?;
-                    println!(
-                        "{}",
-                        format!("Explain verbosity set to: {}", verbosity).green()
-                    );
+                    println!("{}", msg);
                 }
                 "model" => {
                     let preset: ModelPreset =
                         value.parse().map_err(|e: String| anyhow::anyhow!(e))?;
                     config.set_model_preset(preset.clone());
+                    let msg = format!(
+                        "Model preset set to: {} ({})",
+                        preset,
+                        config.get_model_id()
+                    )
+                    .green();
                     config.save()?;
-                    println!(
-                        "{}",
-                        format!(
-                            "Model preset set to: {} ({})",
-                            preset,
-                            config.get_model_id()
-                        )
-                        .green()
-                    );
+                    println!("{}", msg);
                 }
                 "model-id" | "model_id" => {
-                    config.set_custom_model(value.clone());
+                    let msg = format!("Custom model set to: {}", value).green();
+                    config.set_custom_model(value);
                     config.save()?;
-                    println!("{}", format!("Custom model set to: {}", value).green());
+                    println!("{}", msg);
                 }
                 "model.fast" => {
-                    config.set_preset_model(&ModelPreset::Fast, value.clone());
+                    let msg = format!("Custom model for 'fast' preset set to: {}", value).green();
+                    config.set_preset_model(&ModelPreset::Fast, value);
                     config.save()?;
-                    println!(
-                        "{}",
-                        format!("Custom model for 'fast' preset set to: {}", value).green()
-                    );
+                    println!("{}", msg);
                 }
                 "model.standard" => {
-                    config.set_preset_model(&ModelPreset::Standard, value.clone());
+                    let msg =
+                        format!("Custom model for 'standard' preset set to: {}", value).green();
+                    config.set_preset_model(&ModelPreset::Standard, value);
                     config.save()?;
-                    println!(
-                        "{}",
-                        format!("Custom model for 'standard' preset set to: {}", value).green()
-                    );
+                    println!("{}", msg);
                 }
                 "model.quality" => {
-                    config.set_preset_model(&ModelPreset::Quality, value.clone());
+                    let msg =
+                        format!("Custom model for 'quality' preset set to: {}", value).green();
+                    config.set_preset_model(&ModelPreset::Quality, value);
                     config.save()?;
-                    println!(
-                        "{}",
-                        format!("Custom model for 'quality' preset set to: {}", value).green()
-                    );
+                    println!("{}", msg);
                 }
                 "model.explainer" => {
-                    config.set_explainer_model(value.clone());
+                    let msg = format!("Explainer model set to: {}", value).green();
+                    config.set_explainer_model(value);
                     config.save()?;
-                    println!("{}", format!("Explainer model set to: {}", value).green());
+                    println!("{}", msg);
                 }
                 "daily-limit" | "daily_limit" => {
                     let limit: u32 = value.parse().map_err(|_| {
