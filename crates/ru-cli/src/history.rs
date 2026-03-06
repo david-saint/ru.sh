@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
@@ -264,7 +264,7 @@ fn rotate_history(path: &PathBuf) -> Result<()> {
 
     // Write the truncated history with restricted permissions (0600 on Unix)
     #[cfg(unix)]
-    let mut file = {
+    let file = {
         use std::os::unix::fs::OpenOptionsExt;
         OpenOptions::new()
             .write(true)
@@ -276,13 +276,27 @@ fn rotate_history(path: &PathBuf) -> Result<()> {
     };
 
     #[cfg(not(unix))]
-    let mut file = File::create(path)
+    let file = File::create(path)
         .with_context(|| format!("Failed to truncate history file: {}", path.display()))?;
 
-    for line in lines {
+    let mut writer = BufWriter::new(file);
+
+    for (line_index, line) in lines.into_iter().enumerate() {
         // Trim trailing whitespace (including \n) and ensure exactly one newline
-        writeln!(file, "{}", line.trim_end())?;
+        writeln!(writer, "{}", line.trim_end()).with_context(|| {
+            format!(
+                "Failed to write truncated history line {} to {} during rotation",
+                line_index,
+                path.display(),
+            )
+        })?;
     }
+    writer.flush().with_context(|| {
+        format!(
+            "Failed to flush truncated history to {} during rotation",
+            path.display()
+        )
+    })?;
 
     Ok(())
 }
