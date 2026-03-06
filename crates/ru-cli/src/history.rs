@@ -281,12 +281,13 @@ fn rotate_history(path: &PathBuf) -> Result<()> {
 
     let mut writer = BufWriter::new(file);
 
-    for line in lines {
+    for (line_index, line) in lines.into_iter().enumerate() {
         // Trim trailing whitespace (including \n) and ensure exactly one newline
         writeln!(writer, "{}", line.trim_end()).with_context(|| {
             format!(
-                "Failed to write truncated history to {} during rotation",
-                path.display()
+                "Failed to write truncated history line {} to {} during rotation",
+                line_index,
+                path.display(),
             )
         })?;
     }
