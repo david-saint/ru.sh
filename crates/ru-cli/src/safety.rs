@@ -3,6 +3,7 @@ use regex::{Regex, RegexSet};
 use std::borrow::Cow;
 use std::fmt;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
 use unicode_normalization::UnicodeNormalization;
 
@@ -517,8 +518,18 @@ static DANGER_REGEX_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new(patterns).expect("Failed to compile danger patterns regex set")
 });
 
+static REJECTION_LOGGING_ENABLED: AtomicBool = AtomicBool::new(true);
+
+/// Enable or disable stderr logging for prompt-injection rejections.
+pub fn set_rejection_logging(enabled: bool) {
+    REJECTION_LOGGING_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
 /// Log rejected prompt (without exposing full prompt for privacy)
 fn log_rejection(category: InjectionCategory) {
+    if !REJECTION_LOGGING_ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
     eprintln!(
         "[SECURITY] Prompt rejected: matched pattern category '{}'",
         category
@@ -935,7 +946,7 @@ fn unescape_shell_token(token: &str) -> String {
     normalized
 }
 
-fn split_shell_commands(script: &str) -> Vec<&str> {
+pub fn split_shell_commands(script: &str) -> Vec<&str> {
     let mut commands = Vec::new();
     let mut start = 0;
     let mut chars = script.char_indices().peekable();
@@ -1040,7 +1051,7 @@ fn split_shell_commands(script: &str) -> Vec<&str> {
     commands
 }
 
-fn split_shell_words(command: &str) -> Vec<Cow<'_, str>> {
+pub fn split_shell_words(command: &str) -> Vec<Cow<'_, str>> {
     let mut words = Vec::new();
     let mut current = String::new();
     let chars = command.char_indices().peekable();

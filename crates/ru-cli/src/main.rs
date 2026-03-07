@@ -1,20 +1,12 @@
-mod api;
-mod config;
-mod history;
-mod prompt;
-use prompt::Prompter;
-mod safety;
-mod sanitize;
-mod shell;
-mod update;
-mod usage;
-
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use colored::Colorize;
-use config::{Config, ExplainVerbosity, ModelPreset};
-use history::ExecutionRecord;
-use safety::{RiskLevel, SafetyReport};
+use ru_cli::config::{Config, ExplainVerbosity, ModelPreset};
+use ru_cli::history::ExecutionRecord;
+use ru_cli::prompt;
+use ru_cli::prompt::Prompter;
+use ru_cli::safety::{self, RiskLevel, SafetyReport};
+use ru_cli::{api, config, history, sanitize, shell, update, usage};
 use sha2::{Digest, Sha256};
 use shell::Shell;
 use std::env;

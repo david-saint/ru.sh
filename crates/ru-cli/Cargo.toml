@@ -10,6 +10,10 @@ description = "Convert natural language to shell scripts with AI"
 name = "ru"
 path = "src/main.rs"
 
+[lib]
+name = "ru_cli"
+path = "src/lib.rs"
+
 [dependencies]
 tokio.workspace = true
 serde.workspace = true
@@ -35,6 +39,15 @@ assert_cmd = "2"
 predicates = "3"
 wiremock = "0.6"
 mockall = "0.13"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "cli_perf"
+harness = false
+
+[[bench]]
+name = "e2e_perf"
+harness = false
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

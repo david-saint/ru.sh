@@ -544,7 +544,7 @@ fn extract_first_fenced_code_block(trimmed: &str) -> Option<String> {
 ///
 /// Security note: Multi-line unfenced responses are rejected because prose and shell commands
 /// cannot be safely separated without a reliable delimiter.
-fn sanitize_generated_script_response(content: String) -> Result<String> {
+pub fn sanitize_generated_script_response(content: String) -> Result<String> {
     let trimmed = content.trim();
 
     if trimmed.is_empty() {
