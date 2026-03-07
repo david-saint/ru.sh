@@ -175,11 +175,15 @@ fn run() -> Result<()> {
             .collect(),
     };
 
-    let results_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches").join("latest-e2e.json");
+    let results_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("benches")
+        .join("latest-e2e.json");
     write_json(&results_path, &benchmark_file)?;
     println!("Saved e2e results to {}", results_path.display());
 
-    let baseline_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches").join("baseline.json");
+    let baseline_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("benches")
+        .join("baseline.json");
     print_baseline_comparison(&baseline_path, &results)?;
 
     Ok(())
@@ -234,10 +238,7 @@ async fn configure_mocks(server: &MockServer) {
 }
 
 fn compute_stats(name: &str, samples: Vec<Duration>) -> BenchResult {
-    let mut values: Vec<f64> = samples
-        .iter()
-        .map(|d| d.as_secs_f64() * 1000.0)
-        .collect();
+    let mut values: Vec<f64> = samples.iter().map(|d| d.as_secs_f64() * 1000.0).collect();
     values.sort_by(|a, b| a.total_cmp(b));
 
     let min_ms = *values.first().unwrap_or(&0.0);
@@ -320,7 +321,12 @@ fn print_baseline_comparison(baseline_path: &Path, current: &[BenchResult]) -> R
     println!(
         "Comparison vs baseline ({}, {}):",
         baseline.meta.git_sha,
-        baseline.meta.date.split('T').next().unwrap_or(&baseline.meta.date)
+        baseline
+            .meta
+            .date
+            .split('T')
+            .next()
+            .unwrap_or(&baseline.meta.date)
     );
 
     for result in current {
@@ -410,11 +416,7 @@ fn collect_meta(workspace_root: &Path) -> Meta {
 
 fn command_output(command: &str, args: &[&str], cwd: &Path) -> Option<String> {
     let mut cmd = Command::new(command);
-    let output = cmd
-        .args(args)
-        .current_dir(cwd)
-        .output()
-        .ok()?;
+    let output = cmd.args(args).current_dir(cwd).output().ok()?;
     if !output.status.success() {
         return None;
     }

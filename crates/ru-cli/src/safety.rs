@@ -3,8 +3,8 @@ use regex::{Regex, RegexSet};
 use std::borrow::Cow;
 use std::fmt;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use unicode_normalization::UnicodeNormalization;
 
 /// Minimum prompt length
