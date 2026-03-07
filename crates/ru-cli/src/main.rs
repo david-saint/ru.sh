@@ -145,7 +145,7 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                 "model" => {
                     let preset: ModelPreset =
                         value.parse().map_err(|e: String| anyhow::anyhow!(e))?;
-                    config.set_model_preset(preset.clone());
+                    config.set_model_preset(preset);
                     let msg = format!(
                         "Model preset set to: {} ({})",
                         preset,

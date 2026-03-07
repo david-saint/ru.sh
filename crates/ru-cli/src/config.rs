@@ -85,7 +85,7 @@ pub fn ensure_secure_dir(path: &std::path::Path) -> Result<()> {
 }
 
 /// Model preset for quick selection of LLM balance between speed and quality.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModelPreset {
     /// Optimized for the fastest response time.
@@ -137,7 +137,7 @@ pub struct PresetModels {
 }
 
 /// Defines the level of detail provided in script explanations.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ExplainVerbosity {
     /// Provides a concise 2-3 sentence summary of what the script does.
@@ -351,7 +351,7 @@ impl Config {
 
     /// Returns the active model preset, falling back to the default if not set.
     pub fn get_model_preset(&self) -> ModelPreset {
-        self.model_preset.clone().unwrap_or_default()
+        self.model_preset.unwrap_or_default()
     }
 
     /// Sets the active model preset. This clears any existing one-time custom model.
@@ -440,7 +440,7 @@ impl Config {
 
     /// Returns the configured explain verbosity level.
     pub fn get_explain_verbosity(&self) -> ExplainVerbosity {
-        self.explain_verbosity.clone().unwrap_or_default()
+        self.explain_verbosity.unwrap_or_default()
     }
 
     /// Sets the verbosity level for script explanations.
