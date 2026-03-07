@@ -45,3 +45,27 @@ jobs:
 
       - name: Check ru-web compiles
         run: cargo check -p ru-web --target wasm32-unknown-unknown
+
+  bench:
+    name: Benchmarks
+    runs-on: ubuntu-latest
+    needs: check
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run micro-benchmarks
+        run: cargo bench -p ru-cli --bench cli_perf -- --output-format bencher
+
+      - name: Run e2e benchmarks
+        run: cargo bench -p ru-cli --bench e2e_perf
+
+      - name: Upload criterion reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: criterion-reports
+          path: target/criterion/
+          retention-days: 30

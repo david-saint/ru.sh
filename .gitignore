@@ -23,3 +23,6 @@ Thumbs.db
 # Temp
 /temp/
 /mask_bench
+
+# Benchmark outputs
+/crates/ru-cli/benches/latest-e2e.json
