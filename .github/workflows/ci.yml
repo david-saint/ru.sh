@@ -57,14 +57,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Run micro-benchmarks
-        run: cargo bench -p ru-cli --bench cli_perf -- --output-format bencher | tee bench_output.txt
+        run: cargo bench -p ru-cli --bench cli_perf -- --output-format bencher
 
       - name: Run e2e benchmarks
         run: cargo bench -p ru-cli --bench e2e_perf
-
-      - name: Check for regressions
-        run: |
-          echo "Benchmark results above. Review for regressions."
 
       - name: Upload criterion reports
         uses: actions/upload-artifact@v4

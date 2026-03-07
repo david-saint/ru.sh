@@ -37,7 +37,7 @@ struct E2eMetric {
     iterations: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 struct BenchResult {
     name: String,
     samples_ms: Vec<f64>,
@@ -109,7 +109,7 @@ fn run() -> Result<()> {
             needs_mock_api: true,
         },
         Scenario {
-            name: "full_path_safe",
+            name: "dry_run_echo",
             args: vec!["-p", "echo hello", "--dry-run", "--shell", "bash"],
             needs_mock_api: true,
         },
@@ -150,7 +150,7 @@ fn run() -> Result<()> {
         results.push(compute_stats(scenario.name, samples));
     }
 
-    print_table(iterations, &results);
+    print_table(&results);
 
     let benchmark_file = BenchmarkFile {
         meta: collect_meta(&workspace_root),
@@ -168,7 +168,7 @@ fn run() -> Result<()> {
                         stddev_ms: r.stddev_ms,
                         min_ms: r.min_ms,
                         max_ms: r.max_ms,
-                        iterations,
+                        iterations: r.samples_ms.len(),
                     },
                 )
             })
@@ -289,19 +289,24 @@ fn percentile(values: &[f64], p: f64) -> f64 {
     values[rank.min(n - 1)]
 }
 
-fn print_table(iterations: usize, results: &[BenchResult]) {
-    println!("CLI End-to-End Benchmarks ({} iterations each)", iterations);
+fn print_table(results: &[BenchResult]) {
+    println!("CLI End-to-End Benchmarks");
     println!("================================================");
     println!(
-        "{:<20} | {:>8} | {:>8} | {:>8} | {:>8}",
-        "Scenario", "Mean", "Median", "P95", "Stddev"
+        "{:<20} | {:>6} | {:>8} | {:>8} | {:>8} | {:>8}",
+        "Scenario", "N", "Mean", "Median", "P95", "Stddev"
     );
-    println!("---------------------|----------|----------|----------|---------");
+    println!("---------------------|--------|----------|----------|----------|----------");
 
     for r in results {
         println!(
-            "{:<20} | {:>7.1}ms | {:>7.1}ms | {:>7.1}ms | {:>7.1}ms",
-            r.name, r.mean_ms, r.median_ms, r.p95_ms, r.stddev_ms
+            "{:<20} | {:>6} | {:>7.1}ms | {:>7.1}ms | {:>7.1}ms | {:>7.1}ms",
+            r.name,
+            r.samples_ms.len(),
+            r.mean_ms,
+            r.median_ms,
+            r.p95_ms,
+            r.stddev_ms
         );
     }
 }
