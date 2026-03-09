@@ -1,44 +1,4 @@
-## 2024-05-23 - Outdated Device Regex
-**Vulnerability:** The regex patterns for detecting dangerous disk operations (`mkfs`, `dd`, `>`) only matched legacy `/dev/sd[a-z]` devices, completely missing modern NVMe (`/dev/nvme0n1`) and MMC (`/dev/mmcblk0`) devices.
-**Learning:** Security regexes must be updated to reflect modern hardware standards. Hardcoding `sd[a-z]` is a common legacy pattern that leaves newer systems vulnerable.
-**Prevention:** Use more inclusive regexes for device names, or better yet, abstract device detection logic to a centralized function that is easier to maintain and update.
-
-## 2025-05-19 - Regex Bypass via Trailing Comments
-**Vulnerability:** The regex for detecting `rm -rf /` used `\s*($|[;&|])` to ensure the command ended or was separated. This failed to account for trailing comments (e.g., `rm -rf / # comment`) where the comment character `#` is a valid shell separator/terminator for the command.
-**Learning:** When using regex for security checks on shell commands, "whitespace" (`\s`) typically acts as a separator. Any whitespace following a dangerous argument usually means the argument is complete and the danger is present, regardless of what follows (unless it's part of the path, which `/` is not). Relying on explicit terminators like `;`, `|`, `&` without including whitespace or comments (`#`) is brittle.
-**Prevention:** Treat whitespace as a terminator for command arguments in security regexes. The pattern `(\s|[;&|]|$)` is more robust than looking for explicit control operators after optional whitespace.
-
-## 2025-05-27 - Markdown Code Block Execution
-**Vulnerability:** The `strip_code_blocks` function extracted the entire content after the first opening fence ` ``` ` without stopping at the first closing fence. This allowed trailing text (e.g., "Explanation: ...") to be included in the script and executed, creating a potential RCE vulnerability if the LLM hallucinates commands in the explanation.
-**Learning:** LLM outputs are untrusted and unpredictable. When extracting structured data (like code blocks) from LLM responses, always strictly parse the delimiters and discard everything outside the expected structure. Do not assume the LLM will only output the requested format.
-**Prevention:** Use robust parsing logic that identifies both start and end delimiters of the desired content. Treat everything outside these delimiters as potentially malicious or garbage data and discard it.
-
-## 2025-05-27 - Regex Bypass via Immediate Comment
-**Vulnerability:** The regex for `rm -rf /` allowed bypassing detection by appending a comment character `#` immediately after the path (e.g., `rm -rf /#`), as `#` was not included in the terminator set `(\s|[;&|]|$)`.
-**Learning:** In shell, `#` can start a comment immediately after a token without whitespace. Security regexes must account for `#` as a terminator even without preceding whitespace.
-**Prevention:** Include `#` in the set of terminators: `(\s|[;&|#]|$)`.
-
-## 2025-05-29 - Regex Bypass via Argument Reordering
-**Vulnerability:** The regex for detecting `rm -rf /` only matched if the flags (`-rf`) appeared *before* the target path (e.g., `rm -rf /`). This failed to detect cases where flags appeared after the path (`rm / -rf`) or were mixed (`rm -v / -rf`), which are valid shell syntax.
-**Learning:** Regex-based security checks must account for flexible command-line syntax where flags and arguments can be interleaved or reordered. Rigid assumptions about argument order create easy bypasses.
-**Prevention:** Use multiple regex patterns or more flexible patterns that detect dangerous flags anywhere in the command string relative to the target argument, ensuring they are part of the same command (not separated by `;` or `|`).
-
-## 2025-05-29 - Regex Bypass via Argument Order (chmod)
-**Vulnerability:** The regex for detecting insecure permissions (`chmod 777`) assumed that the permission mode immediately followed the command (`chmod\s+777`). This failed to detect cases where flags were present (e.g., `chmod -R 777`), allowing recursive world-writable permissions to bypass checks.
-**Learning:** Security regexes for shell commands must account for optional flags and their position relative to critical arguments. Assumptions about "command then argument" are often violated by valid shell syntax allowing flags.
-**Prevention:** Use regex patterns that allow for optional flags between the command and the critical argument (e.g., `(?:-[a-zA-Z0-9-]+\s+)*`) or use a parser-based approach.
-
-## 2025-05-30 - Mixed Content Execution in LLM Output
-**Vulnerability:** The `strip_code_blocks` function only checked if the response *started* with a markdown code block. If the LLM included introductory text (e.g., "Here is the script:\n..."), the entire response was returned as the script, causing the shell to attempt executing the explanatory text, potentially leading to errors or unintended commands.
-**Learning:** LLMs frequently disobey "output only code" instructions. Input sanitization must aggressively search for the expected format (code blocks) within the entire response, rather than assuming the response *is* the format.
-**Prevention:** Implement a search for the first valid code block delimiter anywhere in the string and extract only the content within the block, discarding all surrounding text.
-
-## 2025-05-19 - Critical System Directories Expansion
-**Vulnerability:** The list of critical system directories in `safety.rs` was incomplete, missing Linux virtual filesystems (`/sys`, `/proc`, `/dev`) and macOS system roots (`/System`, `/Library`, `/Applications`). This allowed `rm -rf /sys` to be classified as Medium/High risk instead of Critical.
-**Learning:** Default lists of "critical directories" often focus on standard Unix FHS (`/etc`, `/bin`) but miss virtual filesystems (which can cause kernel instability if written to/deleted from) and OS-specific roots (macOS).
-**Prevention:** Explicitly include all top-level system directories for target operating systems (Linux, macOS) in critical path checks.
-
-## 2025-03-05 - Secure Configuration Directory Creation
-**Vulnerability:** The application stored sensitive data (API keys, script history containing prompts and script hashes) in the `~/.config/ru.sh` directory. While the files themselves were correctly created with restricted permissions (`0600`), the parent directory was created using `fs::create_dir_all`, which relies on the system umask and can result in world-readable and world-executable directories (e.g., `0777` modified by umask). This could allow other users on the system to list the directory contents, observe file metadata, and attempt side-channel attacks.
-**Learning:** Even if files contain restricted permissions, the enclosing directory must also be restricted to provide defense-in-depth, especially when it holds sensitive configurations.
-**Prevention:** Use `std::fs::DirBuilder` to explicitly set secure permissions (`mode(0o700)`) on Unix systems when creating configuration directories, rather than relying on `fs::create_dir_all`. A reusable pattern `ensure_secure_dir` was created to centralize this security measure.
+## 2026-03-07 - Fix unwrap panic vulnerability on display mask
+**Vulnerability:** The function `mask_api_key_for_display` previously called `.unwrap()` when locating the start index of the suffix for the masked key (`api_key.char_indices().rev().nth(SUFFIX_CHARS - 1).unwrap()`).
+**Learning:** If a string is shorter than `SUFFIX_CHARS` (or manipulated such that the assumed threshold check was inaccurate), this line panics. A panic in this context means a denial-of-service or app crash on specific input or config display, violating the "fail securely" principle.
+**Prevention:** Avoid `.unwrap()` on string index operations or string lookups in production paths. Always use safe fallbacks like `match` or `unwrap_or()` (returning a generic masked string like `"[set]"` here).
