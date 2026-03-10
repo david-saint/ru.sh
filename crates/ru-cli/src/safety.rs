@@ -40,7 +40,7 @@ impl fmt::Display for RiskLevel {
 }
 
 /// Categorizes the type of safety warning identified during script analysis.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WarningCategory {
     /// Potential for permanent damage to the operating system.
     SystemDestruction,
@@ -995,8 +995,9 @@ pub fn split_shell_commands(script: &str) -> Vec<&str> {
                 }
 
                 let part = &script[start..end_of_command];
-                if !part.trim().is_empty() {
-                    commands.push(part.trim());
+                let trimmed = part.trim();
+                if !trimmed.is_empty() {
+                    commands.push(trimmed);
                 }
 
                 if let Some(nl) = newline_pos {
@@ -1011,8 +1012,9 @@ pub fn split_shell_commands(script: &str) -> Vec<&str> {
 
             if ch == ';' || ch == '\n' {
                 let part = &script[start..idx];
-                if !part.trim().is_empty() {
-                    commands.push(part.trim());
+                let trimmed = part.trim();
+                if !trimmed.is_empty() {
+                    commands.push(trimmed);
                 }
                 start = idx + ch.len_utf8();
                 at_word_start = true;
@@ -1029,8 +1031,9 @@ pub fn split_shell_commands(script: &str) -> Vec<&str> {
                 }
 
                 let part = &script[start..idx];
-                if !part.trim().is_empty() {
-                    commands.push(part.trim());
+                let trimmed = part.trim();
+                if !trimmed.is_empty() {
+                    commands.push(trimmed);
                 }
                 start = idx + sep_len;
                 at_word_start = true;
@@ -1043,8 +1046,9 @@ pub fn split_shell_commands(script: &str) -> Vec<&str> {
 
     if start < script.len() {
         let part = &script[start..];
-        if !part.trim().is_empty() {
-            commands.push(part.trim());
+        let trimmed = part.trim();
+        if !trimmed.is_empty() {
+            commands.push(trimmed);
         }
     }
 
@@ -1083,6 +1087,7 @@ pub fn split_shell_words(command: &str) -> Vec<Cow<'_, str>> {
             in_single = !in_single;
             if !needs_allocation {
                 needs_allocation = true;
+                current.reserve(command.len().saturating_sub(word_start_idx));
                 current.push_str(&command[word_start_idx..idx]);
             }
             at_word_start = false;
@@ -1093,6 +1098,7 @@ pub fn split_shell_words(command: &str) -> Vec<Cow<'_, str>> {
             in_double = !in_double;
             if !needs_allocation {
                 needs_allocation = true;
+                current.reserve(command.len().saturating_sub(word_start_idx));
                 current.push_str(&command[word_start_idx..idx]);
             }
             at_word_start = false;
@@ -1484,7 +1490,7 @@ pub fn analyze_script(script: &str, shell: &Shell) -> SafetyReport {
             &mut warnings,
             &mut max_level,
             pattern.level,
-            pattern.category.clone(),
+            pattern.category,
             pattern.description,
         );
     }
