@@ -1136,7 +1136,10 @@ fn mask_api_key_for_display(api_key: &str) -> String {
 
     // Find suffix start using reverse iterator
     // This is O(SUFFIX_CHARS) which is small constant.
-    let (suffix_start, _) = api_key.char_indices().rev().nth(SUFFIX_CHARS - 1).unwrap();
+    let (suffix_start, _) = match api_key.char_indices().rev().nth(SUFFIX_CHARS - 1) {
+        Some(val) => val,
+        None => return "[set]".to_string(),
+    };
 
     format!("{}...{}", &api_key[..prefix_end], &api_key[suffix_start..])
 }
