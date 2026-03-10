@@ -21,3 +21,7 @@
 ## 2026-03-01 - Optimizing String Iteration with Find
 **Learning:** Checking string properties with `all()` before falling back to full iteration and processing introduces a significant double-iteration penalty in the worst case (and a minor overhead in the best case).
 **Action:** Use `.find()` or `.position()` to locate the index of the first character that deviates from the fast-path condition. This allows slicing and copying the safe prefix in bulk (`&input[..bad_idx]`), avoiding double-iteration and improving both branch prediction and instruction cache utilization. When re-allocating a string to add escapes, pre-calculate or estimate the necessary capacity to avoid mid-loop reallocation (e.g., `String::with_capacity(len + padding)`).
+
+## 2026-03-08 - Optimized shell command and word parsing
+**Learning:** In string processing routines heavily reliant on checking individual characters and maintaining state machines, assigning `.trim()` values to local variables prevents duplicate O(N) operations, and using `String::with_capacity(len / 2)` as an upper bound heuristic significantly reduces re-allocation overhead when parsing shell commands into tokens. Additionally, enums utilized as parts of iteration checks, like `WarningCategory`, should implement `Copy` when possible to avoid clone costs.
+**Action:** When implementing character-by-character string tokenization, always analyze the worst-case capacity needed for state accumulators (like `current` strings) and preallocate using `with_capacity`. Ensure lightweight enum types implement `Copy`.

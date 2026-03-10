@@ -995,8 +995,9 @@ pub fn split_shell_commands(script: &str) -> Vec<&str> {
                 }
 
                 let part = &script[start..end_of_command];
-                if !part.trim().is_empty() {
-                    commands.push(part.trim());
+                let trimmed = part.trim();
+                if !trimmed.is_empty() {
+                    commands.push(trimmed);
                 }
 
                 if let Some(nl) = newline_pos {
@@ -1011,8 +1012,9 @@ pub fn split_shell_commands(script: &str) -> Vec<&str> {
 
             if ch == ';' || ch == '\n' {
                 let part = &script[start..idx];
-                if !part.trim().is_empty() {
-                    commands.push(part.trim());
+                let trimmed = part.trim();
+                if !trimmed.is_empty() {
+                    commands.push(trimmed);
                 }
                 start = idx + ch.len_utf8();
                 at_word_start = true;
@@ -1029,8 +1031,9 @@ pub fn split_shell_commands(script: &str) -> Vec<&str> {
                 }
 
                 let part = &script[start..idx];
-                if !part.trim().is_empty() {
-                    commands.push(part.trim());
+                let trimmed = part.trim();
+                if !trimmed.is_empty() {
+                    commands.push(trimmed);
                 }
                 start = idx + sep_len;
                 at_word_start = true;
@@ -1043,8 +1046,9 @@ pub fn split_shell_commands(script: &str) -> Vec<&str> {
 
     if start < script.len() {
         let part = &script[start..];
-        if !part.trim().is_empty() {
-            commands.push(part.trim());
+        let trimmed = part.trim();
+        if !trimmed.is_empty() {
+            commands.push(trimmed);
         }
     }
 
@@ -1053,7 +1057,7 @@ pub fn split_shell_commands(script: &str) -> Vec<&str> {
 
 pub fn split_shell_words(command: &str) -> Vec<Cow<'_, str>> {
     let mut words = Vec::new();
-    let mut current = String::new();
+    let mut current = String::with_capacity(command.len() / 2);
     let chars = command.char_indices().peekable();
     let mut in_single = false;
     let mut in_double = false;
