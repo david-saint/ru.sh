@@ -1,41 +1,45 @@
 #![allow(deprecated)]
 use assert_cmd::Command;
 use predicates::prelude::*;
-use std::io::{Read, Write};
-use std::net::TcpListener;
-use std::thread;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
-fn spawn_mock_api(responses: Vec<String>) -> String {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-    thread::spawn(move || {
-        for body in responses {
-            if let Ok((mut stream, _)) = listener.accept() {
-                let mut buffer = [0; 2048];
-                let _ = stream.read(&mut buffer);
-                let response = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-                    body.len(),
-                    body
-                );
-                let _ = stream.write_all(response.as_bytes());
-            }
+async fn spawn_mock_api(responses: Vec<serde_json::Value>) -> (MockServer, String) {
+    let mock_server = MockServer::start().await;
+    let n = responses.len();
+    for (i, response) in responses.into_iter().enumerate().rev() {
+        let mock = Mock::given(method("POST"))
+            .and(path("/api/v1/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(response));
+
+        if i < n - 1 {
+            mock.up_to_n_times(1).mount(&mock_server).await;
+        } else {
+            mock.mount(&mock_server).await;
         }
-    });
-    format!("http://127.0.0.1:{}", port)
+    }
+
+    let url = format!("{}/api/v1/chat/completions", mock_server.uri());
+    (mock_server, url)
 }
 
-fn chat_response(content: &str) -> String {
-    format!(
-        r#"{{"choices": [{{"message": {{"role": "assistant", "content": {:?}}}}}]}}"#,
-        content
-    )
+fn chat_response(content: &str) -> serde_json::Value {
+    serde_json::json!({
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": content
+                }
+            }
+        ]
+    })
 }
 
-#[test]
-fn test_execute_flow() {
+#[tokio::test]
+async fn test_execute_flow() {
     let api_response = chat_response("ls -la");
-    let url = spawn_mock_api(vec![api_response]);
+    let (_mock_server, url) = spawn_mock_api(vec![api_response]).await;
 
     let mut cmd = Command::cargo_bin("ru").unwrap();
     cmd.env("RU_API_URL", &url)
@@ -51,11 +55,11 @@ fn test_execute_flow() {
         .stdout(predicate::str::contains("Script executed successfully"));
 }
 
-#[test]
-fn test_explain_then_execute_flow() {
+#[tokio::test]
+async fn test_explain_then_execute_flow() {
     let gen_response = chat_response("ls -la");
     let explain_response = chat_response("This command lists all files in long format.");
-    let url = spawn_mock_api(vec![gen_response, explain_response]);
+    let (_mock_server, url) = spawn_mock_api(vec![gen_response, explain_response]).await;
 
     let mut cmd = Command::cargo_bin("ru").unwrap();
     cmd.env("RU_API_URL", &url)
@@ -75,10 +79,10 @@ fn test_explain_then_execute_flow() {
         .stdout(predicate::str::contains("Executing..."));
 }
 
-#[test]
-fn test_cancel_flow() {
+#[tokio::test]
+async fn test_cancel_flow() {
     let api_response = chat_response("ls -la");
-    let url = spawn_mock_api(vec![api_response]);
+    let (_mock_server, url) = spawn_mock_api(vec![api_response]).await;
 
     let mut cmd = Command::cargo_bin("ru").unwrap();
     cmd.env("RU_API_URL", &url)
@@ -94,15 +98,15 @@ fn test_cancel_flow() {
         .stdout(predicate::str::contains("Executing...").not());
 }
 
-#[test]
-fn test_high_risk_confirmation_flow() {
+#[tokio::test]
+async fn test_high_risk_confirmation_flow() {
     let tmp_dir = tempfile::tempdir().unwrap();
     let test_file = tmp_dir.path().join("ru-test-file");
     std::fs::File::create(&test_file).unwrap();
 
     // chmod 777 is High risk
     let api_response = chat_response(&format!("chmod 777 {}", test_file.display()));
-    let url = spawn_mock_api(vec![api_response]);
+    let (_mock_server, url) = spawn_mock_api(vec![api_response]).await;
 
     let mut cmd = Command::cargo_bin("ru").unwrap();
     cmd.env("RU_API_URL", &url)
@@ -120,10 +124,10 @@ fn test_high_risk_confirmation_flow() {
         .stdout(predicate::str::contains("Script executed successfully"));
 }
 
-#[test]
-fn test_high_risk_rejection_flow() {
+#[tokio::test]
+async fn test_high_risk_rejection_flow() {
     let api_response = chat_response("rm -rf /");
-    let url = spawn_mock_api(vec![api_response]);
+    let (_mock_server, url) = spawn_mock_api(vec![api_response]).await;
 
     let mut cmd = Command::cargo_bin("ru").unwrap();
     cmd.env("RU_API_URL", &url)
@@ -140,15 +144,15 @@ fn test_high_risk_rejection_flow() {
     ));
 }
 
-#[test]
-fn test_high_risk_explain_then_confirm_flow() {
+#[tokio::test]
+async fn test_high_risk_explain_then_confirm_flow() {
     let tmp_dir = tempfile::tempdir().unwrap();
     let test_file = tmp_dir.path().join("ru-test-file-2");
     std::fs::File::create(&test_file).unwrap();
 
     let gen_response = chat_response(&format!("chmod 777 {}", test_file.display()));
     let explain_response = chat_response("This makes the file world-writable.");
-    let url = spawn_mock_api(vec![gen_response, explain_response]);
+    let (_mock_server, url) = spawn_mock_api(vec![gen_response, explain_response]).await;
 
     let mut cmd = Command::cargo_bin("ru").unwrap();
     cmd.env("RU_API_URL", &url)
