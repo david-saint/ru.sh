@@ -6,17 +6,14 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 async fn spawn_mock_api(responses: Vec<serde_json::Value>) -> (MockServer, String) {
     let mock_server = MockServer::start().await;
-    let n = responses.len();
-    for (i, response) in responses.into_iter().enumerate().rev() {
+    // Mounts are checked in LIFO order, so iterate in reverse so that
+    // responses[0] has the highest priority and is served first.
+    for response in responses.into_iter().rev() {
         let mock = Mock::given(method("POST"))
             .and(path("/api/v1/chat/completions"))
             .respond_with(ResponseTemplate::new(200).set_body_json(response));
 
-        if i < n - 1 {
-            mock.up_to_n_times(1).mount(&mock_server).await;
-        } else {
-            mock.mount(&mock_server).await;
-        }
+        mock.up_to_n_times(1).mount(&mock_server).await;
     }
 
     let url = format!("{}/api/v1/chat/completions", mock_server.uri());
