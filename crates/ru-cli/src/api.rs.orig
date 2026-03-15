@@ -530,11 +530,9 @@ fn extract_first_fenced_code_block<'a>(trimmed: &'a str) -> Option<std::borrow::
             };
 
             if content_start < content_end {
-                return Some(std::borrow::Cow::Borrowed(
-                    trimmed[content_start..content_end].trim(),
-                ));
+                return Some(trimmed[content_start..content_end].trim().to_string());
             } else {
-                return Some(std::borrow::Cow::Borrowed(""));
+                return Some(String::new());
             }
         }
     }
@@ -554,7 +552,7 @@ pub fn sanitize_generated_script_response(content: String) -> Result<String> {
     }
 
     if let Some(script) = extract_first_fenced_code_block(trimmed) {
-        return Ok(script.into_owned());
+        return Ok(script);
     }
 
     if trimmed.contains("```") {
@@ -571,11 +569,6 @@ pub fn sanitize_generated_script_response(content: String) -> Result<String> {
         bail!("Model returned a multi-line unfenced response");
     }
 
-    // Optimization: If no trimming was needed, return original String
-    if trimmed.len() == content.len() {
-        return Ok(content);
-    }
-
     Ok(trimmed.to_string())
 }
 
@@ -585,7 +578,7 @@ fn strip_code_blocks(content: String) -> String {
     let trimmed = content.trim();
 
     if let Some(script) = extract_first_fenced_code_block(trimmed) {
-        return script.into_owned();
+        return script;
     }
 
     // Optimization: If no trimming was needed, return original String
