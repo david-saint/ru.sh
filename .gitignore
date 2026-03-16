@@ -26,3 +26,7 @@ Thumbs.db
 
 # Benchmark outputs
 /crates/ru-cli/benches/latest-e2e.json
+
+# Patch artifacts
+*.orig
+*.rej
