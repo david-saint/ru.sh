@@ -1,9 +1,34 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
+
+pub mod secret_string_opt {
+    use secrecy::{ExposeSecret, SecretString};
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(value: &Option<SecretString>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match value {
+            Some(secret) => serializer.serialize_some(secret.expose_secret()),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<SecretString>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // Let the outer Option deserialization handle missing fields if `#[serde(default)]` is used
+        let opt: Option<String> = Option::deserialize(deserializer)?;
+        Ok(opt.map(SecretString::from))
+    }
+}
 
 /// Default model used for the "fast" model preset.
 pub const DEFAULT_MODEL_FAST: &str = "google/gemini-2.5-flash:nitro";
@@ -204,7 +229,8 @@ impl PresetModels {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
     /// OpenRouter API key for authentication.
-    pub api_key: Option<String>,
+    #[serde(default, with = "secret_string_opt")]
+    pub api_key: Option<SecretString>,
     /// The currently active model preset.
     pub model_preset: Option<ModelPreset>,
     /// A custom model ID that overrides the preset for a single execution.
@@ -335,13 +361,14 @@ impl Config {
     }
 
     /// Returns the configured API key, if any.
+    #[allow(clippy::useless_asref)]
     pub fn get_api_key(&self) -> Option<&str> {
-        self.api_key.as_deref()
+        self.api_key.as_ref().map(|s| s.expose_secret().as_ref())
     }
 
     /// Sets the API key in the configuration.
     pub fn set_api_key(&mut self, key: String) {
-        self.api_key = Some(key);
+        self.api_key = Some(SecretString::from(key));
     }
 
     /// Clears the API key from the configuration.
@@ -522,7 +549,7 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = Config::default();
-        assert_eq!(config.api_key, None);
+        assert!(config.api_key.is_none());
         assert_eq!(config.model_preset, None);
         assert_eq!(config.custom_model, None);
     }
@@ -539,7 +566,7 @@ mod tests {
         let mut config = Config::default();
         config.set_api_key("test-key".to_string());
         config.clear_api_key();
-        assert_eq!(config.api_key, None);
+        assert!(config.api_key.is_none());
     }
 
     #[test]
@@ -769,7 +796,7 @@ mod tests {
         fs::write(&path, "invalid = toml = format")?;
 
         let config = Config::load_from(path.clone())?;
-        assert_eq!(config.api_key, None); // Should return default config
+        assert!(config.api_key.is_none()); // Should return default config
 
         // Original file should be renamed to .bak
         let bak_path = PathBuf::from(format!("{}.bak", path.display()));
@@ -788,7 +815,7 @@ mod tests {
         }
 
         let config = Config::load_from(path)?;
-        assert_eq!(config.api_key, None);
+        assert!(config.api_key.is_none());
         Ok(())
     }
 
