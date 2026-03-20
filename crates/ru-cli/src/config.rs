@@ -230,7 +230,7 @@ impl PresetModels {
 pub struct Config {
     /// OpenRouter API key for authentication.
     #[serde(default, with = "secret_string_opt")]
-    pub api_key: Option<SecretString>,
+    api_key: Option<SecretString>,
     /// The currently active model preset.
     pub model_preset: Option<ModelPreset>,
     /// A custom model ID that overrides the preset for a single execution.
@@ -361,9 +361,8 @@ impl Config {
     }
 
     /// Returns the configured API key, if any.
-    #[allow(clippy::useless_asref)]
     pub fn get_api_key(&self) -> Option<&str> {
-        self.api_key.as_ref().map(|s| s.expose_secret().as_ref())
+        self.api_key.as_ref().map(|s| s.expose_secret())
     }
 
     /// Sets the API key in the configuration.
