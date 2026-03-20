@@ -243,7 +243,21 @@ fn bench_config_loading(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_unescape_shell_token(c: &mut Criterion) {
+    let mut group = c.benchmark_group("unescape_shell_token");
+    let input = "\\e\\c\\h\\o\\ \\h\\e\\l\\l\\o\\ \\w\\o\\r\\l\\d\\ \\'\\1\\2\\3\\'";
+
+    group.bench_function("unescape", |b| {
+        b.iter(|| {
+            let _ = safety::unescape_shell_token(std::hint::black_box(input));
+        });
+    });
+
+    group.finish();
+}
+
 fn criterion_benchmark(c: &mut Criterion) {
+    bench_unescape_shell_token(c);
     bench_prompt_validation(c);
     bench_script_analysis(c);
     bench_shell_parsing(c);
