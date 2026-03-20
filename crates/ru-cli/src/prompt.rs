@@ -71,7 +71,10 @@ impl TestPrompter {
 
 impl Prompter for TestPrompter {
     fn select(&self, prompt: &str, items: &[&str], _default: usize) -> Result<usize> {
-        let mut responses = self.select_responses.lock().unwrap();
+        let mut responses = self
+            .select_responses
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         if responses.is_empty() {
             anyhow::bail!("No more mock select responses for prompt: {}", prompt);
         }
@@ -87,7 +90,10 @@ impl Prompter for TestPrompter {
     }
 
     fn input(&self, prompt: &str) -> Result<String> {
-        let mut responses = self.input_responses.lock().unwrap();
+        let mut responses = self
+            .input_responses
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         if responses.is_empty() {
             anyhow::bail!("No more mock input responses for prompt: {}", prompt);
         }

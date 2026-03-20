@@ -1077,7 +1077,7 @@ fn resolve_api_key(cli_key: Option<String>, config: &Config) -> Result<String> {
                 .ok()
                 .filter(|k| !k.is_empty())
         },
-        || config.api_key.clone(),
+        || config.get_api_key().map(String::from),
     );
 
     if let Some(key) = key {

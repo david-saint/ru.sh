@@ -164,6 +164,7 @@ static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
     reqwest::Client::builder()
         .timeout(REQUEST_TIMEOUT)
         .connect_timeout(CONNECT_TIMEOUT)
+        // TLS strict defaults are kept explicitly: built-in root certs enabled, minimum TLS 1.2, and invalid certs rejected.
         .build()
         .expect("Failed to create HTTP client")
 });
