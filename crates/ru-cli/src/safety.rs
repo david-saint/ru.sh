@@ -921,7 +921,7 @@ fn chmod_symbolic_mode_sets_world_writable(mode: &str) -> bool {
 }
 
 fn unescape_shell_token(token: &str) -> String {
-    let mut normalized = String::new();
+    let mut normalized = String::with_capacity(token.len());
     let mut chars = token.chars().peekable();
 
     while let Some(ch) = chars.next() {
