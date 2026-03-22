@@ -493,8 +493,9 @@ pub async fn explain_script(
 
     let content = chat_response
         .choices
-        .first()
-        .map(|c| c.message.content.clone())
+        .into_iter()
+        .next()
+        .map(|c| c.message.content)
         .unwrap_or_default();
 
     Ok(content.trim().to_string())
@@ -568,6 +569,11 @@ pub fn sanitize_generated_script_response(content: String) -> Result<String> {
 
     if has_multiple_nonempty_lines {
         bail!("Model returned a multi-line unfenced response");
+    }
+
+    // Return the original string if trimming was not necessary
+    if trimmed.len() == content.len() {
+        return Ok(content);
     }
 
     Ok(trimmed.to_string())
