@@ -407,8 +407,9 @@ pub async fn generate_script(
         .choices
         .into_iter()
         .next()
-        .map(|c| c.message.content)
-        .unwrap_or_default();
+        .ok_or_else(|| anyhow::anyhow!("API returned no choices"))?
+        .message
+        .content;
 
     // Extract executable script content and reject ambiguous mixed prose output.
     let script = sanitize_generated_script_response(content)
@@ -495,10 +496,16 @@ pub async fn explain_script(
         .choices
         .into_iter()
         .next()
-        .map(|c| c.message.content)
-        .unwrap_or_default();
+        .ok_or_else(|| anyhow::anyhow!("API returned no choices"))?
+        .message
+        .content;
 
-    Ok(content.trim().to_string())
+    let trimmed = content.trim();
+    if trimmed.len() == content.len() {
+        Ok(content)
+    } else {
+        Ok(trimmed.to_string())
+    }
 }
 
 fn extract_first_fenced_code_block(trimmed: &str) -> Option<String> {
