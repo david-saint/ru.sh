@@ -63,12 +63,19 @@ pub fn ensure_secure_dir(path: &std::path::Path) -> Result<()> {
             use std::os::unix::fs::MetadataExt;
             use std::os::unix::fs::PermissionsExt;
 
-            let metadata = fs::metadata(path).with_context(|| {
+            let metadata = fs::symlink_metadata(path).with_context(|| {
                 format!(
                     "Failed to read metadata for existing directory: {}",
                     path.display()
                 )
             })?;
+
+            if metadata.file_type().is_symlink() {
+                anyhow::bail!(
+                    "Security risk: config path {} is a symlink. Refusing to alter permissions.",
+                    path.display()
+                );
+            }
 
             let current_mode = metadata.permissions().mode() & 0o777;
             let uid = unsafe { libc::getuid() };
@@ -908,6 +915,23 @@ mod tests {
                 "Target directory in nested path should have 0700 permissions"
             );
         }
+
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_ensure_secure_dir_rejects_symlink() -> Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let real_dir = tmp.path().join("real_dir");
+        let symlink_path = tmp.path().join("symlink_dir");
+
+        fs::create_dir(&real_dir)?;
+        std::os::unix::fs::symlink(&real_dir, &symlink_path)?;
+
+        let result = ensure_secure_dir(&symlink_path);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("is a symlink"));
 
         Ok(())
     }
