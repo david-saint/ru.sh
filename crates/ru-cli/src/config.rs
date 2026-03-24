@@ -53,7 +53,13 @@ pub const CONFIG_DIR_ENV_VAR: &str = "RU_CONFIG_DIR";
 /// process's default umask-derived permissions, since they may be shared with
 /// other applications and should not be locked down.
 pub fn ensure_secure_dir(path: &std::path::Path) -> Result<()> {
-    if path.exists() {
+    // Use try_exists() instead of exists() so that permission errors and other
+    // I/O failures are surfaced rather than silently treated as "not found".
+    let exists = path
+        .try_exists()
+        .with_context(|| format!("Failed to check if directory exists: {}", path.display()))?;
+
+    if exists {
         // Fix permissions on an already-existing directory that may have been
         // created with a permissive umask (e.g. 0o755) by a prior version.
         // Only attempt the change if the current mode differs from 0o700 and
@@ -61,28 +67,54 @@ pub fn ensure_secure_dir(path: &std::path::Path) -> Result<()> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
+            use std::os::unix::fs::OpenOptionsExt;
             use std::os::unix::fs::PermissionsExt;
+            use std::os::unix::io::AsRawFd;
 
-            let metadata = fs::metadata(path).with_context(|| {
+            let metadata = fs::symlink_metadata(path).with_context(|| {
                 format!(
                     "Failed to read metadata for existing directory: {}",
                     path.display()
                 )
             })?;
 
+            if metadata.file_type().is_symlink() {
+                anyhow::bail!(
+                    "Security risk: config path {} is a symlink. Refusing to alter permissions.",
+                    path.display()
+                );
+            }
+
             let current_mode = metadata.permissions().mode() & 0o777;
             let uid = unsafe { libc::getuid() };
 
             if current_mode != 0o700 && metadata.uid() == uid {
-                let mut permissions = metadata.permissions();
-                permissions.set_mode(0o700);
+                // Open the directory with O_NOFOLLOW so that a symlink raced
+                // into place between the symlink_metadata check above and this
+                // open causes ELOOP rather than silently redirecting fchmod to
+                // an attacker-controlled target.
+                let dir_file = std::fs::OpenOptions::new()
+                    .read(true)
+                    .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
+                    .open(path)
+                    .with_context(|| {
+                        format!(
+                            "Failed to open directory to update permissions: {}",
+                            path.display()
+                        )
+                    })?;
 
-                fs::set_permissions(path, permissions).with_context(|| {
-                    format!(
-                        "Failed to update permissions for existing directory: {}",
-                        path.display()
-                    )
-                })?;
+                // fchmod operates on the open fd and cannot be redirected to
+                // another path, closing the TOCTOU window that fs::set_permissions
+                // leaves open.
+                let ret = unsafe { libc::fchmod(dir_file.as_raw_fd(), 0o700) };
+                if ret != 0 {
+                    return Err(anyhow::anyhow!(
+                        "Failed to update permissions for existing directory {}: {}",
+                        path.display(),
+                        std::io::Error::last_os_error()
+                    ));
+                }
             }
         }
 
@@ -105,6 +137,25 @@ pub fn ensure_secure_dir(path: &std::path::Path) -> Result<()> {
     builder
         .create(path)
         .with_context(|| format!("Failed to create secure directory: {}", path.display()))?;
+
+    // After creation, verify the final path component is a real directory and
+    // not a symlink that was raced into place before mkdir completed.
+    #[cfg(unix)]
+    {
+        let metadata = fs::symlink_metadata(path).with_context(|| {
+            format!(
+                "Failed to verify newly created directory: {}",
+                path.display()
+            )
+        })?;
+
+        if metadata.file_type().is_symlink() {
+            anyhow::bail!(
+                "Security risk: config path {} is a symlink after creation. Refusing.",
+                path.display()
+            );
+        }
+    }
 
     Ok(())
 }
@@ -908,6 +959,45 @@ mod tests {
                 "Target directory in nested path should have 0700 permissions"
             );
         }
+
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_ensure_secure_dir_rejects_symlink() -> Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let real_dir = tmp.path().join("real_dir");
+        let symlink_path = tmp.path().join("symlink_dir");
+
+        fs::create_dir(&real_dir)?;
+        std::os::unix::fs::symlink(&real_dir, &symlink_path)?;
+
+        let result = ensure_secure_dir(&symlink_path);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("is a symlink"));
+
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_ensure_secure_dir_rejects_broken_symlink() -> Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let nonexistent_target = tmp.path().join("nonexistent");
+        let symlink_path = tmp.path().join("broken_symlink");
+
+        // Create a symlink whose target does not exist.
+        std::os::unix::fs::symlink(&nonexistent_target, &symlink_path)?;
+
+        // try_exists() returns false for broken symlinks, so the code attempts
+        // to create the directory. mkdir fails with EEXIST because a filesystem
+        // entry (the symlink itself) already occupies the path.
+        let result = ensure_secure_dir(&symlink_path);
+        assert!(
+            result.is_err(),
+            "Should fail when the config path is a broken symlink"
+        );
 
         Ok(())
     }
