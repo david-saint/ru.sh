@@ -420,11 +420,7 @@ fn verify_checksum(data: &[u8], file_name: &str, sums_text: &str) -> Result<()> 
             let mut parts = line.split_whitespace();
             let hash = parts.next()?;
             let name = parts.next()?.trim_start_matches('*');
-            if name == file_name {
-                Some(hash.to_lowercase())
-            } else {
-                None
-            }
+            if name == file_name { Some(hash) } else { None }
         })
         .with_context(|| format!("No checksum entry found for '{}'", file_name))?;
 
@@ -432,7 +428,7 @@ fn verify_checksum(data: &[u8], file_name: &str, sums_text: &str) -> Result<()> 
     hasher.update(data);
     let actual = format!("{:x}", hasher.finalize());
 
-    if actual != expected {
+    if !actual.eq_ignore_ascii_case(expected) {
         bail!(
             "Checksum mismatch for '{}'!\n  expected: {}\n  actual:   {}",
             file_name,
