@@ -187,16 +187,20 @@ impl FromStr for ModelPreset {
     type Err = String;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "fast" => Ok(ModelPreset::Fast),
-            "standard" => Ok(ModelPreset::Standard),
-            "quality" => Ok(ModelPreset::Quality),
+        if s.eq_ignore_ascii_case("fast") {
+            Ok(ModelPreset::Fast)
+        } else if s.eq_ignore_ascii_case("standard") {
+            Ok(ModelPreset::Standard)
+        } else if s.eq_ignore_ascii_case("quality") {
+            Ok(ModelPreset::Quality)
+        } else if s.eq_ignore_ascii_case("cheap") {
             // Backward compatibility: map "cheap" to "fast"
-            "cheap" => Ok(ModelPreset::Fast),
-            _ => Err(format!(
+            Ok(ModelPreset::Fast)
+        } else {
+            Err(format!(
                 "Invalid model preset: '{}'. Valid options: fast, standard, quality",
                 s
-            )),
+            ))
         }
     }
 }
@@ -236,13 +240,15 @@ impl FromStr for ExplainVerbosity {
     type Err = String;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "concise" | "summary" => Ok(ExplainVerbosity::Concise),
-            "verbose" | "detailed" => Ok(ExplainVerbosity::Verbose),
-            _ => Err(format!(
+        if s.eq_ignore_ascii_case("concise") || s.eq_ignore_ascii_case("summary") {
+            Ok(ExplainVerbosity::Concise)
+        } else if s.eq_ignore_ascii_case("verbose") || s.eq_ignore_ascii_case("detailed") {
+            Ok(ExplainVerbosity::Verbose)
+        } else {
+            Err(format!(
                 "Invalid explain verbosity: '{}'. Valid options: concise, verbose",
                 s
-            )),
+            ))
         }
     }
 }
