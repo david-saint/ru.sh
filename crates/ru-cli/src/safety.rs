@@ -1342,7 +1342,7 @@ fn rm_has_dangerous_option(arg: &str) -> bool {
 
 /// Returns operand prefix with escapes removed, and whether an unescaped wildcard was found.
 fn rm_operand_prefix(raw_arg: &str) -> (String, bool) {
-    let mut prefix = String::new();
+    let mut prefix = String::with_capacity(raw_arg.len());
     let mut escaped = false;
 
     for ch in raw_arg.chars() {
