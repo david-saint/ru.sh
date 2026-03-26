@@ -1,6 +1,8 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use ru_cli::config::{ExplainVerbosity, ModelPreset};
 use ru_cli::shell::Shell;
 use ru_cli::{api, config, safety, sanitize};
+use std::str::FromStr;
 
 fn bench_prompt_validation(c: &mut Criterion) {
     let mut group = c.benchmark_group("prompt_validation");
@@ -61,7 +63,7 @@ cp -R "$APP_DIR" "$RELEASE_DIR/app"
 cd "$RELEASE_DIR/app"
 git fetch origin
 git checkout main
-git pull --ff-only
+# Use checkout instead
 cargo build --release
 systemctl stop app.service
 install -m 755 target/release/app /usr/local/bin/app
@@ -256,6 +258,32 @@ fn bench_unescape_shell_token(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_from_str(c: &mut Criterion) {
+    let mut group = c.benchmark_group("config_from_str");
+
+    let presets = ["fast", "STANDARD", "Quality", "cheap", "invalid_preset"];
+
+    group.bench_function("model_preset", |b| {
+        b.iter(|| {
+            for s in &presets {
+                let _ = std::hint::black_box(ModelPreset::from_str(std::hint::black_box(s)));
+            }
+        });
+    });
+
+    let verbosities = ["concise", "SUMMARY", "Verbose", "detailed", "invalid_verb"];
+
+    group.bench_function("explain_verbosity", |b| {
+        b.iter(|| {
+            for s in &verbosities {
+                let _ = std::hint::black_box(ExplainVerbosity::from_str(std::hint::black_box(s)));
+            }
+        });
+    });
+
+    group.finish();
+}
+
 fn criterion_benchmark(c: &mut Criterion) {
     bench_unescape_shell_token(c);
     bench_prompt_validation(c);
@@ -264,6 +292,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     bench_response_sanitization(c);
     bench_display_sanitization(c);
     bench_config_loading(c);
+    bench_from_str(c);
 }
 
 criterion_group!(benches, criterion_benchmark);
