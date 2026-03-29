@@ -831,7 +831,7 @@ fn chmod_invocation_sets_world_writable(args: &[Cow<str>]) -> bool {
             continue;
         }
 
-        let mode = unescape_shell_token(arg);
+        let mode = unescape_shell_token_cow(arg);
         return chmod_mode_sets_world_writable(mode.trim());
     }
 
@@ -920,7 +920,11 @@ fn chmod_symbolic_mode_sets_world_writable(mode: &str) -> bool {
     false
 }
 
-pub fn unescape_shell_token(token: &str) -> Cow<'_, str> {
+pub fn unescape_shell_token(token: &str) -> String {
+    unescape_shell_token_cow(token).into_owned()
+}
+
+pub fn unescape_shell_token_cow(token: &str) -> Cow<'_, str> {
     let Some(idx) = token.find('\\') else {
         return Cow::Borrowed(token);
     };
@@ -2151,5 +2155,64 @@ mod tests {
     fn test_analyze_safe_rm_double_dash_operands() {
         let report = analyze_script("rm -- -rf /", &Shell::Bash);
         assert_eq!(report.overall_risk, RiskLevel::Safe);
+    }
+
+    #[test]
+    fn test_unescape_shell_token_no_escapes_returns_borrowed() {
+        let input = "hello";
+        let result = unescape_shell_token_cow(input);
+        assert!(
+            matches!(result, Cow::Borrowed(_)),
+            "expected Borrowed for token with no backslashes"
+        );
+        assert_eq!(result.as_ref(), "hello");
+    }
+
+    #[test]
+    fn test_unescape_shell_token_with_escapes_returns_owned() {
+        let input = "hel\\lo";
+        let result = unescape_shell_token_cow(input);
+        assert!(
+            matches!(result, Cow::Owned(_)),
+            "expected Owned for token containing backslashes"
+        );
+        assert_eq!(result.as_ref(), "hello");
+    }
+
+    #[test]
+    fn test_unescape_shell_token_line_continuation_removed() {
+        let result = unescape_shell_token_cow("foo\\\nbar");
+        assert_eq!(result.as_ref(), "foobar");
+    }
+
+    #[test]
+    fn test_unescape_shell_token_string_api_unchanged() {
+        assert_eq!(unescape_shell_token("hel\\lo"), String::from("hello"));
+        assert_eq!(unescape_shell_token("plain"), String::from("plain"));
+    }
+
+    #[test]
+    fn test_rm_operand_prefix_no_special_chars() {
+        let (prefix, has_glob) = rm_operand_prefix("/home/user/docs");
+        assert_eq!(prefix.as_ref(), "/home/user/docs");
+        assert!(!has_glob);
+        assert!(
+            matches!(prefix, Cow::Borrowed(_)),
+            "expected Borrowed when no special chars"
+        );
+    }
+
+    #[test]
+    fn test_rm_operand_prefix_unescaped_wildcard() {
+        let (prefix, has_glob) = rm_operand_prefix("/home/user/*.txt");
+        assert_eq!(prefix.as_ref(), "/home/user/");
+        assert!(has_glob);
+    }
+
+    #[test]
+    fn test_rm_operand_prefix_escaped_wildcard() {
+        let (prefix, has_glob) = rm_operand_prefix("/home/user/\\*.txt");
+        assert_eq!(prefix.as_ref(), "/home/user/*.txt");
+        assert!(!has_glob);
     }
 }
