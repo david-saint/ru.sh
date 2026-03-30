@@ -1357,7 +1357,7 @@ fn rm_operand_prefix(raw_arg: &str) -> (Cow<'_, str>, bool) {
         return (Cow::Borrowed(raw_arg), false);
     };
 
-    let ch = raw_arg[idx..].chars().next().unwrap();
+    let ch = raw_arg[idx..].chars().next().unwrap_or('\0');
     if ch != '\\' {
         return (Cow::Borrowed(&raw_arg[..idx]), true);
     }
