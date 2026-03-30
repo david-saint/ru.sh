@@ -1357,7 +1357,12 @@ fn rm_operand_prefix(raw_arg: &str) -> (Cow<'_, str>, bool) {
         return (Cow::Borrowed(raw_arg), false);
     };
 
-    let ch = raw_arg[idx..].chars().next().unwrap();
+    // `idx` comes from `raw_arg.find(['\\', '*', '?', '['])`, which guarantees
+    // `idx < raw_arg.len()` and that `raw_arg[idx..]` is non-empty.
+    let ch = raw_arg[idx..]
+        .chars()
+        .next()
+        .expect("non-empty slice after first special character");
     if ch != '\\' {
         return (Cow::Borrowed(&raw_arg[..idx]), true);
     }
