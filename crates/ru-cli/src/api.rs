@@ -508,7 +508,7 @@ pub async fn explain_script(
     }
 }
 
-fn extract_first_fenced_code_block(trimmed: &str) -> Option<String> {
+fn extract_first_fenced_code_block(trimmed: &str) -> Option<&str> {
     // Look for the start of a code block anywhere in the string
     if let Some(start_fence) = trimmed.find("```") {
         // Find the end of the opening fence line (e.g. ```bash\n)
@@ -517,7 +517,7 @@ fn extract_first_fenced_code_block(trimmed: &str) -> Option<String> {
 
             // Check if there is anything after the opening line
             if content_start >= trimmed.len() {
-                return Some(String::new());
+                return Some("");
             }
 
             let content_part = &trimmed[content_start..];
@@ -525,7 +525,7 @@ fn extract_first_fenced_code_block(trimmed: &str) -> Option<String> {
             // Handle empty block case where closing fence immediately follows opening line
             // We check if the content starts with "```" (which would be the closing fence)
             if content_part.starts_with("```") {
-                return Some(String::new());
+                return Some("");
             }
 
             // Find the closing fence. We search for "\n```" which handles both
@@ -534,14 +534,15 @@ fn extract_first_fenced_code_block(trimmed: &str) -> Option<String> {
             let content_end = if let Some(offset) = content_part.find("\n```") {
                 content_start + offset
             } else {
-                // If no closing fence found, we assume the block goes to the end
-                trimmed.len()
+                // No well-formed closing fence found — treat as malformed rather
+                // than accepting the remainder as executable content.
+                return None;
             };
 
             if content_start < content_end {
-                return Some(trimmed[content_start..content_end].trim().to_string());
+                return Some(trimmed[content_start..content_end].trim());
             } else {
-                return Some(String::new());
+                return Some("");
             }
         }
     }
@@ -554,6 +555,20 @@ fn extract_first_fenced_code_block(trimmed: &str) -> Option<String> {
 /// Security note: Multi-line unfenced responses are rejected because prose and shell commands
 /// cannot be safely separated without a reliable delimiter.
 pub fn sanitize_generated_script_response(content: String) -> Result<String> {
+    let result = sanitize_generated_script_response_borrowed(&content)?;
+    if let std::borrow::Cow::Borrowed(s) = result
+        && s.len() == content.len()
+    {
+        return Ok(content);
+    }
+    Ok(result.into_owned())
+}
+
+/// Borrowed variant of [`sanitize_generated_script_response`] that avoids allocation when the
+/// sanitized content can be returned as a slice of the original input.
+pub fn sanitize_generated_script_response_borrowed(
+    content: &str,
+) -> Result<std::borrow::Cow<'_, str>> {
     let trimmed = content.trim();
 
     if trimmed.is_empty() {
@@ -561,7 +576,7 @@ pub fn sanitize_generated_script_response(content: String) -> Result<String> {
     }
 
     if let Some(script) = extract_first_fenced_code_block(trimmed) {
-        return Ok(script);
+        return Ok(std::borrow::Cow::Borrowed(script));
     }
 
     if trimmed.contains("```") {
@@ -580,27 +595,27 @@ pub fn sanitize_generated_script_response(content: String) -> Result<String> {
 
     // Return the original string if trimming was not necessary
     if trimmed.len() == content.len() {
-        return Ok(content);
+        return Ok(std::borrow::Cow::Borrowed(content));
     }
 
-    Ok(trimmed.to_string())
+    Ok(std::borrow::Cow::Borrowed(trimmed))
 }
 
 /// Strip markdown code blocks from the response
 #[cfg(test)]
-fn strip_code_blocks(content: String) -> String {
+fn strip_code_blocks(content: &str) -> std::borrow::Cow<'_, str> {
     let trimmed = content.trim();
 
     if let Some(script) = extract_first_fenced_code_block(trimmed) {
-        return script;
+        return std::borrow::Cow::Borrowed(script);
     }
 
-    // Optimization: If no trimming was needed, return original String
+    // Optimization: If no trimming was needed, return a borrowed slice of the original
     if trimmed.len() == content.len() {
-        return content;
+        return std::borrow::Cow::Borrowed(content);
     }
 
-    trimmed.to_string()
+    std::borrow::Cow::Borrowed(trimmed)
 }
 
 #[cfg(test)]
@@ -610,46 +625,43 @@ mod tests {
     #[test]
     fn test_strip_code_blocks_bash() {
         let input = "```bash\nls -la\n```";
-        assert_eq!(strip_code_blocks(input.to_string()), "ls -la");
+        assert_eq!(strip_code_blocks(input), "ls -la");
     }
 
     #[test]
     fn test_strip_code_blocks_sh() {
         let input = "```sh\necho hello\n```";
-        assert_eq!(strip_code_blocks(input.to_string()), "echo hello");
+        assert_eq!(strip_code_blocks(input), "echo hello");
     }
 
     #[test]
     fn test_strip_code_blocks_plain() {
         let input = "```\nfind . -name '*.rs'\n```";
-        assert_eq!(strip_code_blocks(input.to_string()), "find . -name '*.rs'");
+        assert_eq!(strip_code_blocks(input), "find . -name '*.rs'");
     }
 
     #[test]
     fn test_strip_code_blocks_mixed_content() {
         let input = "Here is the script:\n```bash\nls -la\n```";
-        assert_eq!(strip_code_blocks(input.to_string()), "ls -la");
+        assert_eq!(strip_code_blocks(input), "ls -la");
     }
 
     #[test]
     fn test_strip_code_blocks_multiple_blocks_mixed() {
         let input = "First:\n```\necho 1\n```\nSecond:\n```\necho 2\n```";
-        assert_eq!(strip_code_blocks(input.to_string()), "echo 1");
+        assert_eq!(strip_code_blocks(input), "echo 1");
     }
 
     #[test]
     fn test_strip_code_blocks_none() {
         let input = "ls -la";
-        assert_eq!(strip_code_blocks(input.to_string()), "ls -la");
+        assert_eq!(strip_code_blocks(input), "ls -la");
     }
 
     #[test]
     fn test_strip_code_blocks_multiline() {
         let input = "```bash\necho one\necho two\necho three\n```";
-        assert_eq!(
-            strip_code_blocks(input.to_string()),
-            "echo one\necho two\necho three"
-        );
+        assert_eq!(strip_code_blocks(input), "echo one\necho two\necho three");
     }
 
     #[test]
@@ -708,7 +720,7 @@ mod tests {
     #[test]
     fn test_strip_code_blocks_crlf() {
         let input = "```bash\r\necho hello\r\n```";
-        assert_eq!(strip_code_blocks(input.to_string()), "echo hello");
+        assert_eq!(strip_code_blocks(input), "echo hello");
     }
 
     #[test]
@@ -809,63 +821,111 @@ mod tests {
     #[test]
     fn test_strip_code_blocks_with_trailing_text() {
         let input = "```bash\nls -la\n```\nExplanation: this lists files.";
-        assert_eq!(strip_code_blocks(input.to_string()), "ls -la");
+        assert_eq!(strip_code_blocks(input), "ls -la");
     }
 
     #[test]
     fn test_strip_code_blocks_multiple_blocks() {
         let input = "```bash\necho first\n```\nSome text\n```bash\necho second\n```";
-        assert_eq!(strip_code_blocks(input.to_string()), "echo first");
+        assert_eq!(strip_code_blocks(input), "echo first");
     }
 
     #[test]
     fn test_strip_code_blocks_empty_block() {
         let input = "```bash\n```";
-        assert_eq!(strip_code_blocks(input.to_string()), "");
+        assert_eq!(strip_code_blocks(input), "");
     }
 
     #[test]
     fn test_strip_code_blocks_empty_block_with_trailing() {
         let input = "```bash\n```\nExplanation";
-        assert_eq!(strip_code_blocks(input.to_string()), "");
+        assert_eq!(strip_code_blocks(input), "");
     }
 
     #[test]
     fn test_sanitize_generated_script_response_single_line_unfenced() {
-        let input = "ls -la";
-        assert_eq!(
-            sanitize_generated_script_response(input.to_string()).unwrap(),
-            "ls -la"
-        );
+        let input = "ls -la".to_string();
+        assert_eq!(sanitize_generated_script_response(input).unwrap(), "ls -la");
     }
 
     #[test]
     fn test_sanitize_generated_script_response_fenced_mixed_content() {
-        let input = "Here is the script:\n```bash\nls -la\n```\nThis lists files.";
-        assert_eq!(
-            sanitize_generated_script_response(input.to_string()).unwrap(),
-            "ls -la"
-        );
+        let input = "Here is the script:\n```bash\nls -la\n```\nThis lists files.".to_string();
+        assert_eq!(sanitize_generated_script_response(input).unwrap(), "ls -la");
     }
 
     #[test]
     fn test_sanitize_generated_script_response_rejects_unfenced_mixed_multiline() {
-        let input = "Here is the script:\nls -la";
-        let err = sanitize_generated_script_response(input.to_string()).unwrap_err();
+        let input = "Here is the script:\nls -la".to_string();
+        let err = sanitize_generated_script_response(input).unwrap_err();
         assert!(err.to_string().contains("multi-line unfenced"));
     }
 
     #[test]
     fn test_sanitize_generated_script_response_rejects_unfenced_multiline_script() {
-        let input = "echo one\necho two";
-        let err = sanitize_generated_script_response(input.to_string()).unwrap_err();
+        let input = "echo one\necho two".to_string();
+        let err = sanitize_generated_script_response(input).unwrap_err();
         assert!(err.to_string().contains("multi-line unfenced"));
     }
 
     #[test]
     fn test_sanitize_generated_script_response_rejects_malformed_fence() {
-        let input = "```bash ls -la ```";
-        let err = sanitize_generated_script_response(input.to_string()).unwrap_err();
+        let input = "```bash ls -la ```".to_string();
+        let err = sanitize_generated_script_response(input).unwrap_err();
         assert!(err.to_string().contains("malformed fenced"));
+    }
+
+    #[test]
+    fn test_sanitize_rejects_unclosed_fence() {
+        // An opening fence with no closing fence should be treated as malformed,
+        // not accepted as executable content.
+        let input = "```bash\nls -la\nsome trailing prose".to_string();
+        let err = sanitize_generated_script_response(input).unwrap_err();
+        assert!(err.to_string().contains("malformed fenced"));
+    }
+
+    #[test]
+    fn test_sanitize_borrowed_returns_borrowed_for_plain_input() {
+        let input = "ls -la";
+        let result = sanitize_generated_script_response_borrowed(input).unwrap();
+        assert!(
+            matches!(result, std::borrow::Cow::Borrowed(_)),
+            "plain input should return Cow::Borrowed"
+        );
+        assert_eq!(result, "ls -la");
+    }
+
+    #[test]
+    fn test_sanitize_borrowed_returns_borrowed_for_trimmed_input() {
+        let input = "  ls -la  ";
+        let result = sanitize_generated_script_response_borrowed(input).unwrap();
+        assert!(
+            matches!(result, std::borrow::Cow::Borrowed(_)),
+            "trimmed input should return Cow::Borrowed (sub-slice)"
+        );
+        assert_eq!(result, "ls -la");
+    }
+
+    #[test]
+    fn test_sanitize_borrowed_returns_borrowed_for_fenced_input() {
+        let input = "```bash\nls -la\n```";
+        let result = sanitize_generated_script_response_borrowed(input).unwrap();
+        assert!(
+            matches!(result, std::borrow::Cow::Borrowed(_)),
+            "fenced extraction should return Cow::Borrowed"
+        );
+        assert_eq!(result, "ls -la");
+    }
+
+    #[test]
+    fn test_sanitize_owned_avoids_allocation_for_unchanged_input() {
+        let input = "ls -la".to_string();
+        let input_ptr = input.as_ptr();
+        let result = sanitize_generated_script_response(input).unwrap();
+        assert_eq!(
+            result.as_ptr(),
+            input_ptr,
+            "unchanged input should reuse the original String allocation"
+        );
     }
 }
