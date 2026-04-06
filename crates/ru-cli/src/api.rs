@@ -555,10 +555,10 @@ fn extract_first_fenced_code_block(trimmed: &str) -> Option<&str> {
 /// cannot be safely separated without a reliable delimiter.
 pub fn sanitize_generated_script_response(content: String) -> Result<String> {
     let result = sanitize_generated_script_response_borrowed(&content)?;
-    if let std::borrow::Cow::Borrowed(s) = result {
-        if s.len() == content.len() {
-            return Ok(content);
-        }
+    if let std::borrow::Cow::Borrowed(s) = result
+        && s.len() == content.len()
+    {
+        return Ok(content);
     }
     Ok(result.into_owned())
 }
