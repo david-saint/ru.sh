@@ -534,8 +534,9 @@ fn extract_first_fenced_code_block(trimmed: &str) -> Option<&str> {
             let content_end = if let Some(offset) = content_part.find("\n```") {
                 content_start + offset
             } else {
-                // If no closing fence found, we assume the block goes to the end
-                trimmed.len()
+                // No well-formed closing fence found — treat as malformed rather
+                // than accepting the remainder as executable content.
+                return None;
             };
 
             if content_start < content_end {
@@ -872,5 +873,59 @@ mod tests {
         let input = "```bash ls -la ```".to_string();
         let err = sanitize_generated_script_response(input).unwrap_err();
         assert!(err.to_string().contains("malformed fenced"));
+    }
+
+    #[test]
+    fn test_sanitize_rejects_unclosed_fence() {
+        // An opening fence with no closing fence should be treated as malformed,
+        // not accepted as executable content.
+        let input = "```bash\nls -la\nsome trailing prose".to_string();
+        let err = sanitize_generated_script_response(input).unwrap_err();
+        assert!(err.to_string().contains("malformed fenced"));
+    }
+
+    #[test]
+    fn test_sanitize_borrowed_returns_borrowed_for_plain_input() {
+        let input = "ls -la";
+        let result = sanitize_generated_script_response_borrowed(input).unwrap();
+        assert!(
+            matches!(result, std::borrow::Cow::Borrowed(_)),
+            "plain input should return Cow::Borrowed"
+        );
+        assert_eq!(result, "ls -la");
+    }
+
+    #[test]
+    fn test_sanitize_borrowed_returns_borrowed_for_trimmed_input() {
+        let input = "  ls -la  ";
+        let result = sanitize_generated_script_response_borrowed(input).unwrap();
+        assert!(
+            matches!(result, std::borrow::Cow::Borrowed(_)),
+            "trimmed input should return Cow::Borrowed (sub-slice)"
+        );
+        assert_eq!(result, "ls -la");
+    }
+
+    #[test]
+    fn test_sanitize_borrowed_returns_borrowed_for_fenced_input() {
+        let input = "```bash\nls -la\n```";
+        let result = sanitize_generated_script_response_borrowed(input).unwrap();
+        assert!(
+            matches!(result, std::borrow::Cow::Borrowed(_)),
+            "fenced extraction should return Cow::Borrowed"
+        );
+        assert_eq!(result, "ls -la");
+    }
+
+    #[test]
+    fn test_sanitize_owned_avoids_allocation_for_unchanged_input() {
+        let input = "ls -la".to_string();
+        let input_ptr = input.as_ptr();
+        let result = sanitize_generated_script_response(input).unwrap();
+        assert_eq!(
+            result.as_ptr(),
+            input_ptr,
+            "unchanged input should reuse the original String allocation"
+        );
     }
 }
