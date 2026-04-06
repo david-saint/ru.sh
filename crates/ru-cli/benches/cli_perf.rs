@@ -195,10 +195,24 @@ fn bench_response_sanitization(c: &mut Criterion) {
         ("multiline_fenced", multiline_fenced.as_str()),
     ];
 
-    for (name, input) in cases {
+    for (name, input) in &cases {
         group.bench_with_input(
-            BenchmarkId::new("sanitize_generated_script_response", name),
-            &input,
+            BenchmarkId::new("sanitize_response_owned", name),
+            input,
+            |b, i| {
+                b.iter(|| {
+                    let _ = api::sanitize_generated_script_response(std::hint::black_box(
+                        (*i).to_string(),
+                    ));
+                });
+            },
+        );
+    }
+
+    for (name, input) in &cases {
+        group.bench_with_input(
+            BenchmarkId::new("sanitize_response_borrowed", name),
+            input,
             |b, i| {
                 b.iter(|| {
                     let _ = api::sanitize_generated_script_response_borrowed(std::hint::black_box(*i));
