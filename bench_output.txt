@@ -1,0 +1,38 @@
+Benchmarking unescape_shell_token/unescape: Complete (Analysis Disabled)
+
+Benchmarking prompt_validation/validate_prompt/short: Complete (Analysis Disabled)
+Benchmarking prompt_validation/validate_prompt/long: Complete (Analysis Disabled)
+Benchmarking prompt_validation/validate_prompt/unicode: Complete (Analysis Disabled)
+Benchmarking prompt_validation/validate_prompt/injection_attempt: Complete (Analysis Disabled)
+
+Note: script_analysis benchmarks include shell syntax checks that spawn subprocesses.
+Benchmarking script_analysis_full/analyze_script/safe_simple: Complete (Analysis Disabled)
+Benchmarking script_analysis_full/analyze_script/safe_multiline: Complete (Analysis Disabled)
+Benchmarking script_analysis_full/analyze_script/medium_risk: Complete (Analysis Disabled)
+Benchmarking script_analysis_full/analyze_script/critical_risk: Complete (Analysis Disabled)
+Benchmarking script_analysis_full/analyze_script/complex_30_lines: Complete (Analysis Disabled)
+Benchmarking script_analysis_full/analyze_script/powershell: Complete (Analysis Disabled)
+
+Benchmarking shell_parsing_commands/split_shell_commands/single_command: Complete (Analysis Disabled)
+Benchmarking shell_parsing_commands/split_shell_commands/piped_chain: Complete (Analysis Disabled)
+Benchmarking shell_parsing_commands/split_shell_commands/multiline_with_quotes: Complete (Analysis Disabled)
+Benchmarking shell_parsing_commands/split_shell_commands/complex_script: Complete (Analysis Disabled)
+
+Benchmarking shell_parsing_words/split_shell_words/single_command: Complete (Analysis Disabled)
+Benchmarking shell_parsing_words/split_shell_words/piped_chain: Complete (Analysis Disabled)
+Benchmarking shell_parsing_words/split_shell_words/multiline_with_quotes: Complete (Analysis Disabled)
+Benchmarking shell_parsing_words/split_shell_words/complex_script: Complete (Analysis Disabled)
+
+Benchmarking response_sanitization/sanitize_generated_script_response/plain: Complete (Analysis Disabled)
+Benchmarking response_sanitization/sanitize_generated_script_response/fenced_bash: Complete (Analysis Disabled)
+Benchmarking response_sanitization/sanitize_generated_script_response/fenced_with_prose: Complete (Analysis Disabled)
+Benchmarking response_sanitization/sanitize_generated_script_response/multiline_fenced: Complete (Analysis Disabled)
+
+Benchmarking display_sanitization/for_display/clean: Complete (Analysis Disabled)
+Benchmarking display_sanitization/for_display/ansi_escapes: Complete (Analysis Disabled)
+Benchmarking display_sanitization/for_display/unicode_heavy: Complete (Analysis Disabled)
+
+Benchmarking config_loading/Config::load: Complete (Analysis Disabled)
+
+Benchmarking config_from_str/model_preset: Complete (Analysis Disabled)
+Benchmarking config_from_str/explain_verbosity: Complete (Analysis Disabled)

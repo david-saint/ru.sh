@@ -412,10 +412,10 @@ pub async fn generate_script(
         .content;
 
     // Extract executable script content and reject ambiguous mixed prose output.
-    let script = sanitize_generated_script_response(content)
+    let script = sanitize_generated_script_response(&content)
         .context("LLM returned an ambiguous or malformed script response")?;
 
-    Ok(script)
+    Ok(script.into_owned())
 }
 
 /// Explains a shell script using the specified model and verbosity level.
@@ -553,21 +553,7 @@ fn extract_first_fenced_code_block(trimmed: &str) -> Option<&str> {
 ///
 /// Security note: Multi-line unfenced responses are rejected because prose and shell commands
 /// cannot be safely separated without a reliable delimiter.
-pub fn sanitize_generated_script_response(content: String) -> Result<String> {
-    let result = sanitize_generated_script_response_borrowed(&content)?;
-    if let std::borrow::Cow::Borrowed(s) = result
-        && s.len() == content.len()
-    {
-        return Ok(content);
-    }
-    Ok(result.into_owned())
-}
-
-/// Borrowed variant of [`sanitize_generated_script_response`] that avoids allocation when the
-/// sanitized content can be returned as a slice of the original input.
-pub fn sanitize_generated_script_response_borrowed(
-    content: &str,
-) -> Result<std::borrow::Cow<'_, str>> {
+pub fn sanitize_generated_script_response(content: &str) -> Result<std::borrow::Cow<'_, str>> {
     let trimmed = content.trim();
 
     if trimmed.is_empty() {
@@ -609,7 +595,7 @@ fn strip_code_blocks(content: &str) -> std::borrow::Cow<'_, str> {
         return std::borrow::Cow::Borrowed(script);
     }
 
-    // Optimization: If no trimming was needed, return a borrowed slice of the original
+    // Optimization: If no trimming was needed, return original String
     if trimmed.len() == content.len() {
         return std::borrow::Cow::Borrowed(content);
     }
@@ -843,33 +829,33 @@ mod tests {
 
     #[test]
     fn test_sanitize_generated_script_response_single_line_unfenced() {
-        let input = "ls -la".to_string();
+        let input = "ls -la";
         assert_eq!(sanitize_generated_script_response(input).unwrap(), "ls -la");
     }
 
     #[test]
     fn test_sanitize_generated_script_response_fenced_mixed_content() {
-        let input = "Here is the script:\n```bash\nls -la\n```\nThis lists files.".to_string();
+        let input = "Here is the script:\n```bash\nls -la\n```\nThis lists files.";
         assert_eq!(sanitize_generated_script_response(input).unwrap(), "ls -la");
     }
 
     #[test]
     fn test_sanitize_generated_script_response_rejects_unfenced_mixed_multiline() {
-        let input = "Here is the script:\nls -la".to_string();
+        let input = "Here is the script:\nls -la";
         let err = sanitize_generated_script_response(input).unwrap_err();
         assert!(err.to_string().contains("multi-line unfenced"));
     }
 
     #[test]
     fn test_sanitize_generated_script_response_rejects_unfenced_multiline_script() {
-        let input = "echo one\necho two".to_string();
+        let input = "echo one\necho two";
         let err = sanitize_generated_script_response(input).unwrap_err();
         assert!(err.to_string().contains("multi-line unfenced"));
     }
 
     #[test]
     fn test_sanitize_generated_script_response_rejects_malformed_fence() {
-        let input = "```bash ls -la ```".to_string();
+        let input = "```bash ls -la ```";
         let err = sanitize_generated_script_response(input).unwrap_err();
         assert!(err.to_string().contains("malformed fenced"));
     }
