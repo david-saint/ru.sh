@@ -554,23 +554,13 @@ fn extract_first_fenced_code_block(trimmed: &str) -> Option<&str> {
 /// Security note: Multi-line unfenced responses are rejected because prose and shell commands
 /// cannot be safely separated without a reliable delimiter.
 pub fn sanitize_generated_script_response(content: String) -> Result<String> {
-    // Use the borrowed variant to check whether any modification is needed.
-    // If the result points to exactly the same bytes as `content`, return the
-    // original owned `String` without cloning.
-    let same_as_input = {
-        let result = sanitize_generated_script_response_borrowed(&content)?;
-        matches!(
-            &result,
-            std::borrow::Cow::Borrowed(s)
-                if s.as_ptr() == content.as_ptr() && s.len() == content.len()
-        )
-        // `result` (and the borrow of `content`) is dropped here
-    };
-    if same_as_input {
-        Ok(content)
-    } else {
-        sanitize_generated_script_response_borrowed(&content).map(std::borrow::Cow::into_owned)
+    let result = sanitize_generated_script_response_borrowed(&content)?;
+    if let std::borrow::Cow::Borrowed(s) = result {
+        if s.len() == content.len() {
+            return Ok(content);
+        }
     }
+    Ok(result.into_owned())
 }
 
 /// Borrowed variant of [`sanitize_generated_script_response`] that avoids allocation when the
