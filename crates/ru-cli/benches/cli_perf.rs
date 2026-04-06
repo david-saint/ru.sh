@@ -201,7 +201,7 @@ fn bench_response_sanitization(c: &mut Criterion) {
             &input,
             |b, i| {
                 b.iter(|| {
-                    let _ = api::sanitize_generated_script_response(std::hint::black_box(*i));
+                    let _ = api::sanitize_generated_script_response_borrowed(std::hint::black_box(*i));
                 });
             },
         );
