@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.14] - 2026-06-14
+
+### Fixed
+- Reject unclosed code fences as malformed in API response parsing.
+- Resolved CI failures (clippy `collapsible_if` and rustfmt).
+
+### Changed
+- Hardened API response parsing with `Cow` semantics and improved test coverage.
+
 ## [0.1.13] - 2026-02-25
 
 ### Added
