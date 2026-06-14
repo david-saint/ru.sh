@@ -1574,7 +1574,7 @@ pub fn analyze_script(script: &str, shell: &Shell) -> SafetyReport {
     }
 
     // Sort warnings by severity (highest first)
-    warnings.sort_by(|a, b| b.level.cmp(&a.level));
+    warnings.sort_by_key(|w| std::cmp::Reverse(w.level));
 
     // Check syntax
     let (syntax_valid, syntax_error) = check_syntax(script, shell);
